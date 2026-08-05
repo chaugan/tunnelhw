@@ -204,9 +204,10 @@ TOKEN=<api token>; B=http://127.0.0.1:8443/api/v1
 # 1. find the device
 curl -s -H "Authorization: Bearer $TOKEN" $B/devices
 
-# 2. open it (returns {"session_id": ...})
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"device_id":"amber-falcon","params":{"baud":115200}}' $B/sessions
+# 2. open it, keeping the session id
+SID=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"device_id":"amber-falcon","params":{"baud":115200}}' $B/sessions \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 
 # 3. write, then read (text is present when the bytes are valid UTF-8)
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
