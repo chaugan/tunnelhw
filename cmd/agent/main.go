@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,24 +19,100 @@ import (
 	"github.com/chaugan/tunnelhw/internal/agent"
 	"github.com/chaugan/tunnelhw/internal/config"
 	"github.com/chaugan/tunnelhw/internal/serialdev"
+	"github.com/chaugan/tunnelhw/internal/svc"
 	"github.com/chaugan/tunnelhw/internal/webui"
 )
 
 // rescanInterval drives hot-plug detection.
 const rescanInterval = 3 * time.Second
 
+const serviceName = "tunnelhw-agent"
+
 func main() {
+	// "service <action>" manages the background service; anything else runs
+	// the agent, in the foreground or under a service manager.
+	if len(os.Args) > 2 && os.Args[1] == "service" {
+		if err := runServiceCmd(os.Args[2], os.Args[3:]); err != nil {
+			log.Fatalf("agent: %v", err)
+		}
+		return
+	}
+
 	cfgDir := flag.String("config-dir", "", "config directory (default: the per-user config dir)")
 	listen := flag.String("listen", "", "web UI listen address, loopback only (default: from config, "+config.DefaultUIListen+")")
 	insecureDev := flag.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs — development only")
+	flag.Usage = usage
 	flag.Parse()
 
-	if err := run(*cfgDir, *listen, *insecureDev); err != nil {
+	err := svc.Run(spec(nil), func(ctx context.Context) error {
+		return run(ctx, *cfgDir, *listen, *insecureDev)
+	})
+	if err != nil {
 		log.Fatalf("agent: %v", err)
 	}
 }
 
-func run(dir, listen string, insecureDev bool) error {
+func usage() {
+	out := flag.CommandLine.Output()
+	fmt.Fprintf(out, `TunnelHW agent — exposes selected local serial hardware to a paired relay.
+
+Usage:
+  %s [flags]                     run in the foreground
+  %s service install [flags]     install as a background service
+  %s service start|stop|restart|uninstall|status
+
+Flags:
+`, serviceName, serviceName, serviceName)
+	flag.PrintDefaults()
+}
+
+// spec describes the agent service. args are the flags the installed service
+// will run with.
+func spec(args []string) svc.Spec {
+	return svc.Spec{
+		Name:        serviceName,
+		DisplayName: "TunnelHW agent",
+		Description: "Exposes selected local serial hardware to a paired TunnelHW relay.",
+		Arguments:   args,
+		System:      systemScope,
+	}
+}
+
+var systemScope bool
+
+// runServiceCmd handles "service <action> [flags]". Flags given to
+// "service install" are recorded and replayed every time the service starts.
+func runServiceCmd(action string, rest []string) error {
+	fs := flag.NewFlagSet("service "+action, flag.ExitOnError)
+	cfgDir := fs.String("config-dir", "", "config directory the service should use")
+	listen := fs.String("listen", "", "web UI listen address, loopback only")
+	insecureDev := fs.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs — development only")
+	system := fs.Bool("system", false, "install system-wide instead of for the current user")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	systemScope = *system
+
+	var args []string
+	if *cfgDir != "" {
+		args = append(args, "--config-dir", *cfgDir)
+	}
+	if *listen != "" {
+		args = append(args, "--listen", *listen)
+	}
+	if *insecureDev {
+		args = append(args, "--insecure-dev")
+	}
+	if action == "install" && *cfgDir == "" && (*system || !svc.SupportsUserServices()) {
+		// A system service has a different home directory, so the agent would
+		// silently use a config dir that is not the one the user set up.
+		log.Print("warning: installing a system-scoped service without --config-dir; " +
+			"it will use the service account's config directory, not yours")
+	}
+	return svc.Control(spec(args), action)
+}
+
+func run(ctx context.Context, dir, listen string, insecureDev bool) error {
 	var err error
 	if dir == "" {
 		if dir, err = config.Dir(); err != nil {
@@ -56,7 +133,9 @@ func run(dir, listen string, insecureDev bool) error {
 		log.Printf("initial device scan: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Under a service manager the caller's context carries the stop signal;
+	// in the foreground, Ctrl-C and SIGTERM do.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	tunnels := &tunnelManager{ctx: ctx, core: core}

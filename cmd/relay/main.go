@@ -9,11 +9,13 @@
 //	api-token             mint a consumer (LLM-host / API) bearer token
 //	agents                list paired agents
 //	revoke-agent <id>     revoke an agent's credential
+//	service <action>      install/uninstall/start/stop/restart/status
 //
 // Secrets are printed exactly once at mint time and never logged.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -24,6 +26,7 @@ import (
 	"time"
 
 	"github.com/chaugan/tunnelhw/internal/auth"
+	"github.com/chaugan/tunnelhw/internal/svc"
 )
 
 func main() {
@@ -36,7 +39,9 @@ func main() {
 	var err error
 	switch cmd {
 	case "serve":
-		err = runServe(args)
+		// Run through the service wrapper so the same code path works in the
+		// foreground and under a service manager.
+		err = svc.Run(spec(nil), func(ctx context.Context) error { return runServe(ctx, args) })
 	case "pair-token":
 		err = runPairToken(args)
 	case "api-token":
@@ -45,6 +50,12 @@ func main() {
 		err = runAgents(args)
 	case "revoke-agent":
 		err = runRevokeAgent(args)
+	case "service":
+		if len(args) == 0 {
+			err = fmt.Errorf("service needs an action: install, uninstall, start, stop, restart, status")
+			break
+		}
+		err = runServiceCmd(args[0], args[1:])
 	case "help":
 		usage(os.Stdout)
 	default:
@@ -67,9 +78,14 @@ Commands:
   api-token                 Mint a consumer API bearer token.
   agents                    List paired agents.
   revoke-agent <agent-id>   Revoke an agent's credential.
+  service <action>          install | uninstall | start | stop | restart | status
   help                      Show this help.
 
 Run "tunnelhw-relay <command> -h" for command flags.
+
+"service install" takes the same flags as "serve" and records them, so the
+service starts with exactly that configuration. It installs for the current
+user where the platform supports it; use --system for a system-wide service.
 `)
 }
 

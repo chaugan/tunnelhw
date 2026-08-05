@@ -28,7 +28,7 @@ const (
 	pairWindow = time.Minute
 )
 
-func runServe(args []string) error {
+func runServe(parent context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", ":8443", "address to listen on")
 	stateDir := stateDirFlag(fs)
@@ -70,7 +70,9 @@ func runServe(args []string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Under a service manager the parent context carries the stop request; in
+	// the foreground, Ctrl-C and SIGTERM do.
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	errCh := make(chan error, 1)

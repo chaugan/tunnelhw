@@ -20,6 +20,9 @@ Nothing is exposed by default.
   doesn't speak MCP.
 - **Serial first:** USB adapters, native COM ports and UARTs, PCI serial
   cards, RS-232/485, Bluetooth SPP.
+- **Foreground or background:** run either binary directly, or install it as a
+  Windows service / systemd unit / launchd agent — see
+  [Running as a service](#running-as-a-service).
 
 Prebuilt binaries for Windows, Linux and macOS are on the
 [releases page](https://github.com/chaugan/tunnelhw/releases). Design notes are
@@ -179,6 +182,46 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" $B/sessions/$SID
 ```
 
 ---
+
+## Running as a service
+
+Both binaries run in the foreground by default — just launch them. Either can
+instead be installed as a background service using the platform's own service
+manager: **Windows services**, **systemd**, or **launchd**. Same subcommands
+everywhere.
+
+```bash
+# The flags you give to "install" are recorded and replayed on every start.
+tunnelhw-relay service install --listen 127.0.0.1:8443 --insecure-dev
+tunnelhw-relay service start
+
+tunnelhw-agent service install
+tunnelhw-agent service start
+
+# also: stop, restart, status, uninstall
+tunnelhw-agent service status
+```
+
+Installed **for the current user** where the platform supports it (systemd
+`--user`, launchd LaunchAgent); add `--system` for a system-wide service.
+
+**Prefer a user service for the agent.** It resolves its config directory,
+`~/.ssh/known_hosts`, `~/.ssh/config` and the ssh-agent from the user's
+environment, so a service running as root or LocalSystem looks in a different
+home directory and fails to authenticate in ways that are hard to diagnose.
+The same applies to the relay's `--state-dir`: a system service will not see
+credentials you minted under your own account, so pass `--state-dir`
+explicitly to both the service and the `pair-token` / `api-token` commands.
+
+Platform notes, which `service install` also prints:
+
+| Platform | Notes |
+|---|---|
+| **Linux** | A `--user` service stops at logout unless you enable lingering: `sudo loginctl enable-linger $USER`. Serial ports usually need `sudo usermod -aG dialout $USER`. Installing over plain SSH may fail with no user D-Bus instance — the error explains the options. |
+| **macOS** | Installs a LaunchAgent for your user; `--system` writes a LaunchDaemon. |
+| **Windows** | Has no per-user services, so this always runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable — either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
+
+The service records the binary's current path, so reinstall if you move it.
 
 ## How it fits together
 
