@@ -10,8 +10,12 @@ remote server — as if the hardware were attached to that server.
   pattern over WSS), so it works behind NAT/firewalls.
 - Each exposed device gets a stable, human-readable two-word ID like
   `amber-falcon` — the handle the LLM uses to open it.
-- The relay exposes the devices to the LLM via an **MCP server**
-  (`list_devices`, `open`, `read`, `write`, …).
+- The relay exposes the devices to the LLM via a built-in **MCP server**
+  (`list_devices`, `open_device`, `read`, `write`, `set_params`, `drain`,
+  `close_session`) and an equivalent plain **JSON API**.
+
+If the LLM's machine runs `sshd`, the agent can tunnel over SSH and the relay
+never needs a public address — see [Deployment topologies](#deployment-topologies).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
@@ -23,12 +27,16 @@ and will be opened up.)
 
 ## Status
 
-v0.1: the full serial path works end to end (agent ⇄ relay ⇄ HTTP API / MCP),
-covered by a hardware-free e2e test. Architecture v0.2 was independently
-reviewed by a three-model panel (Codex / Grok / Kimi) — see
-[docs/DESIGN-REVIEW-2026-08-05.md](docs/DESIGN-REVIEW-2026-08-05.md); the
-component code went through a second two-lens review round whose accepted
-findings are all applied.
+Working end to end, including against real hardware. Prebuilt binaries for
+Windows, Linux, and macOS are on the
+[releases page](https://github.com/chaugan/tunnelhw/releases) — you do not need
+to build from source.
+
+The architecture was independently reviewed by a three-model panel
+(Codex / Grok / Kimi); see
+[docs/DESIGN-REVIEW-2026-08-05.md](docs/DESIGN-REVIEW-2026-08-05.md) for the
+adjudication, and the component code went through a second security +
+correctness review round.
 
 ## Deployment topologies
 
@@ -70,10 +78,12 @@ the agent uses its private mesh address. Topology B with private addressing.
 
 ## Quickstart (agent on Windows, relay on Linux)
 
-Build everything (needs Go ≥1.25; binaries land in `dist/`):
+Download the two binaries you need from the
+[releases page](https://github.com/chaugan/tunnelhw/releases) — or build them
+all yourself (needs Go ≥1.25; output lands in `dist/`):
 
 ```bash
-scripts/build.sh 0.1.0
+scripts/build.sh 0.2.4
 ```
 
 This walks topology **A** (over SSH), which needs no public address.
@@ -103,33 +113,154 @@ paste the pairing token. Verify the host-key fingerprint when prompted. Then
 toggle **Exposed** on the devices the LLM may use — each gets a stable
 word-pair ID like `amber-falcon`.
 
-**3. LLM host:** the MCP server is built into the relay — nothing extra to
-install. Point an MCP client at `http://127.0.0.1:8443/mcp` (it is local to the
-LLM machine) with `Authorization: Bearer <api token>`. For example, in Claude
-Code:
+**3. Give the LLM access.** The MCP server is built into the relay — there is
+nothing extra to install or run. See the next section.
+
+macOS note: cross-compiled darwin binaries enumerate ports with degraded
+metadata (no USB serial numbers — macOS needs cgo/IOKit for that); build
+natively on a Mac with `CGO_ENABLED=1` for full fingerprinting.
+
+## Connecting the LLM
+
+### Register the MCP server
+
+Point your MCP client at the relay's `/mcp` endpoint with the bearer token from
+`api-token`. Because the relay runs on the LLM's own machine, that URL is
+usually loopback.
+
+Claude Code:
 
 ```bash
 claude mcp add tunnelhw --transport http http://127.0.0.1:8443/mcp \
   --header "Authorization: Bearer <api token>"
 ```
 
-Tools: `list_devices`, `open_device`, `read`, `write`, `set_params`, `drain`,
-`close_session`. If your LLM does not speak MCP, the same capabilities are
-available as a plain JSON API under `/api/v1/` with the same token.
+Any client that takes a JSON config:
 
-macOS note: cross-compiled darwin binaries enumerate ports with degraded
-metadata (no USB serial numbers — macOS needs cgo/IOKit for that); build
-natively on a Mac with `CGO_ENABLED=1` for full fingerprinting.
+```json
+{
+  "mcpServers": {
+    "tunnelhw": {
+      "type": "http",
+      "url": "http://127.0.0.1:8443/mcp",
+      "headers": { "Authorization": "Bearer <api token>" }
+    }
+  }
+}
+```
 
-## Repo layout (planned)
+**Restart the LLM session afterwards.** MCP servers are loaded when a session
+starts — registering one mid-session does not make its tools appear.
+
+### Verify it worked
+
+Ask the LLM to list devices. It should name your exposed device by its word ID.
+To check independently of the LLM:
+
+```bash
+curl -s -H "Authorization: Bearer <api token>" http://127.0.0.1:8443/api/v1/devices
+```
+
+An empty `{"devices":[]}` with the agent connected means nothing has been
+toggled **Exposed** in the agent's web UI yet — that is the usual cause.
+
+### What the LLM can do
+
+No prompting or instructions are needed: the tool descriptions tell the model
+the semantics, including the rules below.
+
+| Tool | Purpose |
+|---|---|
+| `list_devices` | word ID, transport, online/busy, fingerprint confidence |
+| `open_device` | claim a device, returns a `session_id` (baud etc. optional) |
+| `read` | bounded read: `timeout_ms`, `max_bytes`, optional `delimiter` |
+| `write` | send data, `utf8` or `base64` |
+| `set_params` | change baud / toggle DTR / RTS mid-session |
+| `drain` | wait for buffered output to reach the hardware |
+| `close_session` | release the device |
+
+Rules worth knowing as the operator:
+
+- **Devices are exclusive.** One session at a time; a second `open_device`
+  fails with a `busy` error naming the holder.
+- **Reads never block indefinitely** and may return partial data — the model is
+  told to check `timed_out` and read again.
+- **Sessions do not survive a reconnect.** If the agent's tunnel drops, session
+  IDs become invalid and nothing is replayed; the model re-opens.
+- **Control lines are a separate grant.** `set_params` (baud, DTR, RTS) is
+  refused unless you enable **Control lines** for that device in the web UI,
+  because toggling DTR/RTS can reset a board or drop it into its bootloader.
+- **Read-only tokens** (`api-token --read-only`) allow `list_devices` and
+  `read` only — useful for a monitoring LLM.
+
+### If your LLM does not speak MCP
+
+Every capability is available as a plain JSON API under `/api/v1/` with the same
+bearer token. A full round trip:
+
+```bash
+TOKEN=<api token>; B=http://127.0.0.1:8443/api/v1
+
+# 1. find the device
+curl -s -H "Authorization: Bearer $TOKEN" $B/devices
+
+# 2. open it (returns {"session_id": ...})
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"device_id":"amber-falcon","params":{"baud":115200}}' $B/sessions
+
+# 3. write, then read (text is present when the bytes are valid UTF-8)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"data":"hello\r\n"}' $B/sessions/$SID/write
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"timeout_ms":3000,"max_bytes":4096}' $B/sessions/$SID/read
+
+# 4. always close
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" $B/sessions/$SID
+```
+
+### Notes from real use
+
+- **A silent device is normal.** Plenty of firmware prints nothing until it is
+  prompted or reset. If the device is granted control lines, a DTR/RTS pulse
+  produces a boot log — on an ESP32 the reset reason (`rst:0x15
+  USB_UART_CHIP_RESET`) even confirms the control line reached the chip.
+- **Weak fingerprints move.** A board that reports no USB serial number is
+  identified by VID:PID plus port path, so replugging it elsewhere can produce
+  a *new* word ID. The web UI flags this as weak confidence.
+- **Minting a token does not require a relay restart** (since v0.2.1), but
+  registering an MCP server does require an LLM session restart.
+
+## Repo layout
 
 ```
-cmd/agent/         # local agent + embedded web UI
-cmd/relay/         # relay + MCP server
-internal/proto/    # control-message types, versioning
-internal/mux/      # stream-multiplexing helpers
-internal/serial/   # enumeration, fingerprinting, bridging
-internal/names/    # wordlists + stable word-pair ID assignment
-web/               # UI sources (go:embed)
-docs/              # architecture & design notes
+cmd/agent/          # local agent binary + tunnel lifecycle
+cmd/relay/          # relay binary: serve + pair-token/api-token/agents/revoke
+internal/agent/     # device registry, exclusive sessions, tunnel client
+internal/auth/      # pairing tokens, agent credentials, API tokens (hashed)
+internal/config/    # agent config persistence (atomic, 0600)
+internal/mcp/       # MCP adapter over the relay API
+internal/mux/       # pinned yamux configuration
+internal/names/     # curated wordlists + stable word-pair IDs
+internal/proto/     # control protocol: framing, versioning, correlation IDs
+internal/relay/     # hub: agent tunnels, device announces, stream brokerage
+internal/relayapi/  # the core API + its HTTP surface (MCP maps onto this)
+internal/serialdev/ # enumeration, tiered fingerprinting, port I/O
+internal/sshtun/    # SSH carrier: known_hosts policy, ssh-agent, ssh_config
+internal/webui/     # localhost web UI handlers + hardening
+internal/e2e/       # end-to-end tests, incl. an in-process sshd
+web/                # zero-build UI assets (go:embed)
+docs/               # architecture & design review
 ```
+
+## Development
+
+```bash
+export PATH=/path/to/go/bin:$PATH
+go test -race ./...        # includes a hardware-free end-to-end test
+scripts/build.sh <version> # cross-compile everything into dist/
+```
+
+The end-to-end tests wire the real agent to the real relay over a live
+WebSocket with an in-memory serial device, and a second suite runs the same
+path through an in-process SSH server — so the full pipeline is testable
+without any hardware.
