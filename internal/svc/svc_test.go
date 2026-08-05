@@ -68,3 +68,44 @@ func TestControlRejectsUnknownAction(t *testing.T) {
 		t.Fatalf("err = %v, want an unknown-action error", err)
 	}
 }
+
+// Forgetting --system on a follow-up command must not report "not installed"
+// while the service is sitting there installed.
+func TestResolveScopeFindsSystemService(t *testing.T) {
+	if !SupportsUserServices() {
+		t.Skip("no user services on this platform")
+	}
+	user, system := unitPaths("tunnelhw-scope-probe")
+	if system == "" {
+		t.Skip("no unit paths known for this platform")
+	}
+	if user == system {
+		t.Fatal("user and system unit paths must differ")
+	}
+
+	// Explicit --system is always honoured.
+	if got, switched := resolveScope(Spec{Name: "x", System: true}); !got.System || switched {
+		t.Errorf("explicit --system: got System=%v switched=%v", got.System, switched)
+	}
+	// With neither installed, stay user-scoped.
+	if got, switched := resolveScope(Spec{Name: "tunnelhw-definitely-not-installed"}); got.System || switched {
+		t.Errorf("nothing installed: got System=%v switched=%v", got.System, switched)
+	}
+}
+
+func TestUnitPathsAreScopeDistinct(t *testing.T) {
+	user, system := unitPaths("tunnelhw-relay")
+	switch runtime.GOOS {
+	case "linux":
+		if system != "/etc/systemd/system/tunnelhw-relay.service" {
+			t.Errorf("system unit path = %q", system)
+		}
+		if user != "" && !strings.HasSuffix(user, "/.config/systemd/user/tunnelhw-relay.service") {
+			t.Errorf("user unit path = %q", user)
+		}
+	case "darwin":
+		if system != "/Library/LaunchDaemons/tunnelhw-relay.plist" {
+			t.Errorf("system plist path = %q", system)
+		}
+	}
+}

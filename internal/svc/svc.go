@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -126,12 +127,77 @@ func Run(spec Spec, fn func(context.Context) error) error {
 	return p.err
 }
 
+// unitPaths returns the file the platform's service manager creates for each
+// scope, so an already-installed service can be found without guessing.
+func unitPaths(name string) (user, system string) {
+	home, err := os.UserHomeDir()
+	switch runtime.GOOS {
+	case "linux":
+		if err == nil {
+			user = filepath.Join(home, ".config", "systemd", "user", name+".service")
+		}
+		system = "/etc/systemd/system/" + name + ".service"
+	case "darwin":
+		if err == nil {
+			user = filepath.Join(home, "Library", "LaunchAgents", name+".plist")
+		}
+		system = "/Library/LaunchDaemons/" + name + ".plist"
+	}
+	return user, system
+}
+
+func exists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// resolveScope finds the scope an action should act on. Requiring --system on
+// every subsequent command is a trap: forget it once and the tool reports
+// "not installed" while the service sits there installed. So when only a
+// system-scoped service exists, operate on that.
+func resolveScope(spec Spec) (Spec, bool) {
+	if spec.System || !SupportsUserServices() {
+		return spec, false
+	}
+	user, system := unitPaths(spec.Name)
+	if exists(system) && !exists(user) {
+		spec.System = true
+		return spec, true
+	}
+	return spec, false
+}
+
 // Control performs an install/uninstall/start/stop/restart/status action.
 //
 // On Windows these actions need an elevated token, which the process is very
 // unlikely to have; rather than fail with "Access is denied" it re-launches
 // itself through UAC and reports what the elevated copy did.
 func Control(spec Spec, action string) error {
+	if action == "install" {
+		// Installing the opposite scope over an existing one fails deep in the
+		// service manager with "Init already exists"; say what to do instead.
+		user, system := unitPaths(spec.Name)
+		if other := map[bool]string{true: user, false: system}[spec.System]; exists(other) {
+			return fmt.Errorf("%s is already installed with the other scope (%s)\n"+
+				"Remove it first:  %s service uninstall%s",
+				spec.Name, other, exeName(), scopeFlag(!spec.System))
+		}
+	} else {
+		if user, system := unitPaths(spec.Name); !spec.System && exists(user) && exists(system) {
+			// Both scopes installed: acting on one silently would look like
+			// the command did nothing to the other.
+			fmt.Printf("warning: %s is installed twice — per-user (%s) and system-wide (%s).\n"+
+				"         Acting on the per-user one; add --system for the other.\n",
+				spec.Name, user, system)
+		}
+		var switched bool
+		if spec, switched = resolveScope(spec); switched {
+			fmt.Printf("(acting on the system-scoped %s)\n", spec.Name)
+		}
+	}
 	if elevationSupported() && needsElevation(action) && !isElevated() {
 		fmt.Printf("%s needs Administrator rights — requesting elevation…\n", action)
 		code, err := relaunchElevated()
@@ -206,6 +272,22 @@ func installError(spec Spec, err error) error {
 		}
 	}
 	return err
+}
+
+// exeName is the invocation to suggest in messages: the real path, since a
+// downloaded binary is not on PATH.
+func exeName() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "tunnelhw"
+}
+
+func scopeFlag(system bool) string {
+	if system {
+		return " --system"
+	}
+	return ""
 }
 
 func scopeWord(spec Spec) string {
