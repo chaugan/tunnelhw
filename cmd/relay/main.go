@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -89,9 +90,44 @@ user where the platform supports it; use --system for a system-wide service.
 `)
 }
 
-// defaultStateDir is where the credential store lives unless --state-dir
-// overrides it.
-func defaultStateDir() string {
+// systemContext reports whether we are acting on behalf of the machine rather
+// than the invoking user: running as root, via sudo, or as a Windows service.
+// The credential store has to follow that distinction, because a relay
+// installed as a system service and the admin commands run with sudo must
+// land on the *same* store — otherwise tokens are minted where the service
+// will never look for them.
+func systemContext() bool {
+	if os.Getenv("SUDO_USER") != "" {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return os.Geteuid() == 0
+	}
+	// A Windows service runs as LocalSystem, whose profile is under
+	// %WINDIR%\System32\config\systemprofile.
+	if cfg, err := os.UserConfigDir(); err == nil {
+		return strings.Contains(strings.ToLower(cfg), `system32\config\systemprofile`)
+	}
+	return false
+}
+
+// systemStateDir is the machine-wide location for the credential store.
+func systemStateDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		if pd := os.Getenv("ProgramData"); pd != "" {
+			return filepath.Join(pd, "tunnelhw-relay")
+		}
+		return `C:\ProgramData\tunnelhw-relay`
+	case "darwin":
+		return "/Library/Application Support/tunnelhw-relay"
+	default:
+		return "/var/lib/tunnelhw-relay"
+	}
+}
+
+// userStateDir is the per-user location for the credential store.
+func userStateDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "tunnelhw-relay"
@@ -99,9 +135,38 @@ func defaultStateDir() string {
 	return filepath.Join(dir, "tunnelhw-relay")
 }
 
+// defaultStateDir is where the credential store lives unless --state-dir
+// overrides it: machine-wide when acting for the machine, per-user otherwise.
+func defaultStateDir() string {
+	if systemContext() {
+		return systemStateDir()
+	}
+	return userStateDir()
+}
+
 // stateDirFlag registers the shared --state-dir flag on a FlagSet.
 func stateDirFlag(fs *flag.FlagSet) *string {
 	return fs.String("state-dir", defaultStateDir(), "directory holding the relay's credential store")
+}
+
+// reportStateDir names the store being used, and points at the other one when
+// this looks like the mistake that costs an afternoon: minting into an empty
+// store while the credentials sit in the other scope's.
+func reportStateDir(dir string) {
+	fmt.Fprintf(os.Stderr, "using credential store: %s\n", dir)
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); err == nil {
+		return
+	}
+	other := userStateDir()
+	if dir == other {
+		other = systemStateDir()
+	}
+	if _, err := os.Stat(filepath.Join(other, "auth.json")); err == nil {
+		fmt.Fprintf(os.Stderr,
+			"note: this store is empty, but one exists at %s.\n"+
+				"      If that is the one your relay uses, add --state-dir %s\n",
+			other, other)
+	}
 }
 
 func runPairToken(args []string) error {
@@ -110,6 +175,7 @@ func runPairToken(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	reportStateDir(*stateDir)
 	store, err := auth.Open(*stateDir)
 	if err != nil {
 		return err
@@ -132,6 +198,7 @@ func runAPIToken(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	reportStateDir(*stateDir)
 	var agents []string
 	for _, a := range strings.Split(*agentsCSV, ",") {
 		if a = strings.TrimSpace(a); a != "" {
@@ -165,6 +232,7 @@ func runAgents(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	reportStateDir(*stateDir)
 	store, err := auth.Open(*stateDir)
 	if err != nil {
 		return err
@@ -191,6 +259,7 @@ func runRevokeAgent(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	reportStateDir(*stateDir)
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: tunnelhw-relay revoke-agent [--state-dir dir] <agent-id>")
 	}

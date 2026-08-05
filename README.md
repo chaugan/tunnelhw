@@ -204,14 +204,50 @@ tunnelhw-agent service status
 
 Installed **for the current user** where the platform supports it (systemd
 `--user`, launchd LaunchAgent); add `--system` for a system-wide service.
+Running any service command under `sudo` implies `--system`, since a per-user
+service owned by root is never what's intended. You do not need to repeat the
+scope on later commands — `start`, `status` and `uninstall` find whichever
+service is actually installed.
 
-**Prefer a user service for the agent.** It resolves its config directory,
-`~/.ssh/known_hosts`, `~/.ssh/config` and the ssh-agent from the user's
-environment, so a service running as root or LocalSystem looks in a different
-home directory and fails to authenticate in ways that are hard to diagnose.
-The same applies to the relay's `--state-dir`: a system service will not see
-credentials you minted under your own account, so pass `--state-dir`
-explicitly to both the service and the `pair-token` / `api-token` commands.
+### Where credentials live
+
+The relay's credential store follows the same split, automatically:
+
+| How you run it | Store |
+|---|---|
+| as yourself | `~/.config/tunnelhw-relay` (or the OS equivalent) |
+| under `sudo`, as root, or as a service | `/var/lib/tunnelhw-relay` · `/Library/Application Support/tunnelhw-relay` · `%ProgramData%\tunnelhw-relay` |
+
+So `sudo tunnelhw-relay pair-token` and a system-scoped service agree on one
+store without any flags. Every command prints which store it is using, and
+warns if that store is empty while the other one has credentials — the failure
+mode being minting tokens the running relay will never see.
+
+If you move between scopes and want to keep existing pairings and tokens, copy
+the store across (`service install` prints this command when it detects the
+situation):
+
+```bash
+sudo mkdir -p /var/lib/tunnelhw-relay
+sudo cp ~/.config/tunnelhw-relay/auth.json /var/lib/tunnelhw-relay/
+sudo chmod 600 /var/lib/tunnelhw-relay/auth.json
+```
+
+### Prefer a user service for the agent
+
+The agent resolves its config directory, `~/.ssh/known_hosts`, `~/.ssh/config`
+and the ssh-agent from the user's environment. A service running as root or
+LocalSystem looks in a different home directory, so it starts with **no
+pairing** and cannot see your SSH keys.
+
+Consequences when you do run the agent as a system service:
+
+- It needs its own **pairing token** — its config directory is empty.
+- The same board gets a **different word ID**, because the `fingerprint → name`
+  map lives in that config directory.
+- You are asked to approve the SSH **host key** again, for the same reason.
+- Give the SSH key as an **absolute path**; the ssh-agent is not reachable
+  from another account.
 
 Platform notes, which `service install` also prints:
 
@@ -222,6 +258,17 @@ Platform notes, which `service install` also prints:
 | **Windows** | Installing, starting and stopping a service needs Administrator rights, so `service install` **raises a UAC prompt** and re-runs itself elevated — no need for an Administrator terminal. Windows has no per-user services, so the service runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable — either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
 
 The service records the binary's current path, so reinstall if you move it.
+
+### If something goes wrong
+
+| Symptom | Cause and fix |
+|---|---|
+| `command not found` after installing | The binary is not on `PATH`. Use its full path — `service install` prints the exact command to run. |
+| `status` says `not installed`, but it is | An older build required `--system` on every action. Upgrade; the scope is now detected. |
+| `Init already exists` when installing | The other scope is already installed. Uninstall that one first — the error names its path. |
+| Service starts, then rejects your agent and tokens | It is reading a different credential store. Check the path each command prints, and copy the store across if needed. |
+| Agent service runs but cannot authenticate over SSH | It is not running as you, so `~/.ssh` is not yours. Use an absolute key path, or run the agent in the foreground. |
+| Linux: install fails over SSH with no user D-Bus | `systemctl --user` needs a login session. Use `sudo … --system`, or `sudo loginctl enable-linger $USER` and reconnect. |
 
 ## How it fits together
 

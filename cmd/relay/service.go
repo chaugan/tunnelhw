@@ -2,7 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/chaugan/tunnelhw/internal/svc"
 )
@@ -41,6 +44,18 @@ func runServiceCmd(action string, rest []string) error {
 	}
 	systemScope = *system
 
+	// Pin the store into the unit rather than leaving it to a runtime default:
+	// the service and the admin commands must agree on one location, and the
+	// unit file should say which.
+	resolvedState := *stateDir
+	if resolvedState == "" {
+		if *system || !svc.SupportsUserServices() {
+			resolvedState = systemStateDir()
+		} else {
+			resolvedState = userStateDir()
+		}
+	}
+
 	args := []string{"serve"}
 	add := func(flagName, v string) {
 		if v != "" {
@@ -48,7 +63,7 @@ func runServiceCmd(action string, rest []string) error {
 		}
 	}
 	add("listen", *listen)
-	add("state-dir", *stateDir)
+	add("state-dir", resolvedState)
 	add("tls-cert", *tlsCert)
 	add("tls-key", *tlsKey)
 	if *insecureDev {
@@ -59,12 +74,25 @@ func runServiceCmd(action string, rest []string) error {
 	}
 
 	if action == "install" {
-		if *stateDir == "" && (*system || !svc.SupportsUserServices()) {
-			// auth.json lives under the *service account's* config dir, which
-			// is not the one the admin CLI used to mint tokens.
-			log.Print("warning: installing a system-scoped service without --state-dir; " +
-				"it will not see credentials minted under your own account — " +
-				"pass --state-dir to both this and the pair-token/api-token commands")
+		fmt.Printf("credential store: %s\n", resolvedState)
+		// Credentials minted before the store moved would otherwise be
+		// invisible to the new service, which looks exactly like a broken
+		// pairing.
+		if _, err := os.Stat(filepath.Join(resolvedState, "auth.json")); err != nil {
+			for _, other := range []string{userStateDir(), systemStateDir()} {
+				if other == resolvedState {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(other, "auth.json")); err == nil {
+					fmt.Printf("note: an existing store was found at %s.\n"+
+						"      To keep current pairings and tokens, copy it across before starting:\n"+
+						"        sudo mkdir -p %s && sudo cp %s %s && sudo chmod 600 %s\n",
+						other, resolvedState,
+						filepath.Join(other, "auth.json"), resolvedState,
+						filepath.Join(resolvedState, "auth.json"))
+					break
+				}
+			}
 		}
 		if *insecureDev && !loopbackListen(*listen) {
 			log.Print("WARNING: --insecure-dev with a non-loopback listen address serves " +
