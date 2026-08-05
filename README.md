@@ -219,7 +219,7 @@ Platform notes, which `service install` also prints:
 |---|---|
 | **Linux** | A `--user` service stops at logout unless you enable lingering: `sudo loginctl enable-linger $USER`. Serial ports usually need `sudo usermod -aG dialout $USER`. Installing over plain SSH may fail with no user D-Bus instance — the error explains the options. |
 | **macOS** | Installs a LaunchAgent for your user; `--system` writes a LaunchDaemon. |
-| **Windows** | Has no per-user services, so this always runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable — either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
+| **Windows** | Installing, starting and stopping a service needs Administrator rights, so `service install` **raises a UAC prompt** and re-runs itself elevated — no need for an Administrator terminal. Windows has no per-user services, so the service runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable — either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
 
 The service records the binary's current path, so reinstall if you move it.
 

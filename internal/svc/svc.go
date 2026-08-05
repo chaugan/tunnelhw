@@ -127,7 +127,29 @@ func Run(spec Spec, fn func(context.Context) error) error {
 }
 
 // Control performs an install/uninstall/start/stop/restart/status action.
+//
+// On Windows these actions need an elevated token, which the process is very
+// unlikely to have; rather than fail with "Access is denied" it re-launches
+// itself through UAC and reports what the elevated copy did.
 func Control(spec Spec, action string) error {
+	if elevationSupported() && needsElevation(action) && !isElevated() {
+		fmt.Printf("%s needs Administrator rights — requesting elevation…\n", action)
+		code, err := relaunchElevated()
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("elevated %q failed (exit code %d)", action, code)
+		}
+		// The elevated copy runs in its own console window, which closes
+		// immediately, so report the outcome from here where it can be read.
+		fmt.Printf("%s: %s completed with Administrator rights\n", spec.Name, action)
+		if action == "install" {
+			printPostInstallNotes(spec)
+		}
+		return nil
+	}
+
 	s, err := service.New(&program{done: make(chan struct{})}, spec.config())
 	if err != nil {
 		return err
