@@ -18,14 +18,17 @@ type DeviceRecord struct {
 	AllowControlLines bool   `json:"allow_control_lines"`
 }
 
-// Config is the agent's persisted state.
+// Config is the agent's persisted state. Note there is deliberately no
+// persisted insecure-dev flag: permitting plaintext relay URLs is a
+// per-process decision (--insecure-dev) that must be re-made every launch,
+// never remembered (design review: a sticky flag silently downgrades TLS
+// forever).
 type Config struct {
-	RelayURL    string                  `json:"relay_url,omitempty"`
-	AgentID     string                  `json:"agent_id,omitempty"`
-	Credential  string                  `json:"credential,omitempty"`
-	InsecureDev bool                    `json:"insecure_dev,omitempty"`
-	UIListen    string                  `json:"ui_listen,omitempty"`
-	Devices     map[string]DeviceRecord `json:"devices"` // key: fingerprint key
+	RelayURL   string                  `json:"relay_url,omitempty"`
+	AgentID    string                  `json:"agent_id,omitempty"`
+	Credential string                  `json:"credential,omitempty"`
+	UIListen   string                  `json:"ui_listen,omitempty"`
+	Devices    map[string]DeviceRecord `json:"devices"` // key: fingerprint key
 }
 
 // DefaultUIListen is loopback-only by design; see ARCHITECTURE.md §7.

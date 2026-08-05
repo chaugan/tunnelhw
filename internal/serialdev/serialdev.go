@@ -13,7 +13,6 @@ import (
 
 	"github.com/chaugan/tunnelhw/internal/proto"
 	"go.bug.st/serial"
-	"go.bug.st/serial/enumerator"
 )
 
 // PortInfo is one enumerated serial port.
@@ -26,25 +25,12 @@ type PortInfo struct {
 	Product      string
 }
 
-// Enumerate lists every serial port the OS knows about.
-func Enumerate() ([]PortInfo, error) {
-	ports, err := enumerator.GetDetailedPortsList()
-	if err != nil {
-		return nil, fmt.Errorf("serialdev: enumerate: %w", err)
-	}
-	out := make([]PortInfo, 0, len(ports))
-	for _, p := range ports {
-		out = append(out, PortInfo{
-			Path:         p.Name,
-			IsUSB:        p.IsUSB,
-			VID:          strings.ToLower(p.VID),
-			PID:          strings.ToLower(p.PID),
-			SerialNumber: p.SerialNumber,
-			Product:      p.Product,
-		})
-	}
-	return out, nil
-}
+// Enumerate lists every serial port the OS knows about. The implementation is
+// build-tagged: everywhere except cgo-less darwin it uses the detailed
+// enumerator (USB metadata included); a darwin binary cross-compiled without
+// cgo falls back to bare port paths with degraded metadata (see
+// enumerate_fallback.go).
+func Enumerate() ([]PortInfo, error) { return enumerate() }
 
 // Fingerprint is a device's stable identity with an honesty label.
 type Fingerprint struct {

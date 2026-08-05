@@ -97,7 +97,7 @@ func (a *API) openSession(w http.ResponseWriter, r *http.Request, tok *auth.APIT
 		jsonErr(w, http.StatusBadRequest, "device_id is required")
 		return
 	}
-	s, err := a.Broker.Open(req.DeviceID, req.Params, tok.Agents)
+	s, err := a.Broker.Open(req.DeviceID, req.Params, tok.Agents, tok.Hash)
 	if err != nil {
 		jsonErr(w, http.StatusConflict, err.Error())
 		return
@@ -113,8 +113,8 @@ func (a *API) listSessions(w http.ResponseWriter, r *http.Request, tok *auth.API
 	}
 	out := []sview{}
 	for _, s := range a.Broker.Sessions() {
-		if len(tok.Agents) > 0 && !containsStr(tok.Agents, s.AgentID) {
-			continue
+		if s.Owner != tok.Hash {
+			continue // sessions of other credentials are invisible
 		}
 		in, o := s.Counters()
 		out = append(out, sview{Session: s, BytesIn: in, BytesOut: o})
@@ -131,14 +131,11 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-// sessionFor enforces token agent-scoping on session access.
+// sessionFor enforces session ownership: a session opened by one credential
+// is indistinguishable from unknown to every other credential.
 func (a *API) sessionFor(w http.ResponseWriter, r *http.Request, tok *auth.APIToken) *Session {
 	s, err := a.Broker.Get(r.PathValue("id"))
-	if err != nil {
-		jsonErr(w, http.StatusNotFound, err.Error())
-		return nil
-	}
-	if len(tok.Agents) > 0 && !containsStr(tok.Agents, s.AgentID) {
+	if err != nil || s.Owner != tok.Hash {
 		jsonErr(w, http.StatusNotFound, ErrUnknownSession.Error())
 		return nil
 	}

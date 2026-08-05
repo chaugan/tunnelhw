@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf" content="__CSRF_TOKEN__">
+<title>TunnelHW Agent</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>TunnelHW <span class="dim">agent</span></h1>
+    <p class="dim small">Localhost control panel — nothing is exposed by default.</p>
+  </div>
+  <button id="killswitch" class="danger" title="Close every session and sever the relay link">Kill switch</button>
+</header>
+
+<section>
+  <h2>Relay</h2>
+  <div id="relay-banner" class="banner banner-off">checking…</div>
+  <form id="pair-form" autocomplete="off">
+    <input id="pair-url" type="text" placeholder="wss://relay.example.com" required>
+    <input id="pair-token" type="password" placeholder="pairing token" required>
+    <input id="pair-name" type="text" placeholder="agent name (optional)">
+    <button type="submit" id="pair-btn">Pair</button>
+  </form>
+  <div id="pair-msg" class="small"></div>
+</section>
+
+<section>
+  <h2>Devices</h2>
+  <p class="dim small">The word-ID is a handle for the LLM, not a secret — access is
+  controlled by credentials and the expose list.</p>
+  <div class="tablewrap">
+    <table id="devices">
+      <thead><tr>
+        <th>ID</th><th>Path</th><th>Transport</th><th>Identity</th><th>Product</th>
+        <th>State</th><th>Exposed</th><th>Control lines</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="no-devices" class="dim small hidden">No serial devices found.</div>
+</section>
+
+<section>
+  <h2>Sessions</h2>
+  <ul id="sessions" class="plain"></ul>
+  <div id="no-sessions" class="dim small">No open sessions.</div>
+</section>
+
+<section>
+  <h2>Activity</h2>
+  <ul id="activity" class="plain mono"></ul>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>

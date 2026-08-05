@@ -150,7 +150,7 @@ func TestEndToEnd(t *testing.T) {
 	waitFor(t, "device announced", func() bool { return len(hub.Devices(nil)) == 1 })
 
 	// Open, write, read echo.
-	sess, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil)
+	sess, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Exclusive open: second open must fail busy.
-	if _, err := broker.Open(wordID, proto.OpenParams{Baud: 9600}, nil); err == nil || !strings.Contains(err.Error(), "busy") {
+	if _, err := broker.Open(wordID, proto.OpenParams{Baud: 9600}, nil, "test-owner"); err == nil || !strings.Contains(err.Error(), "busy") {
 		t.Fatalf("second open: err = %v, want busy", err)
 	}
 
@@ -184,7 +184,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "device free after close", func() bool {
-		s2, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil)
+		s2, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
 		if err != nil {
 			return false
 		}
@@ -193,7 +193,7 @@ func TestEndToEnd(t *testing.T) {
 	})
 
 	// Read timeout semantics: no data → timed_out, empty.
-	s3, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil)
+	s3, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
 	if err != nil {
 		t.Fatal(err)
 	}

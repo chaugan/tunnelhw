@@ -39,6 +39,8 @@ type Core struct {
 	claims   map[string]string       // device uuid -> session id
 
 	activity *Activity
+
+	changeMu sync.Mutex
 	onChange func() // fires after any state change worth re-announcing
 }
 
@@ -58,12 +60,38 @@ func New(dir string, cfg *config.Config, enumerate func() ([]serialdev.PortInfo,
 }
 
 // OnChange registers the re-announce hook (single consumer).
-func (c *Core) OnChange(fn func()) { c.onChange = fn }
+func (c *Core) OnChange(fn func()) {
+	c.changeMu.Lock()
+	c.onChange = fn
+	c.changeMu.Unlock()
+}
 
 func (c *Core) changed() {
-	if c.onChange != nil {
-		go c.onChange()
+	c.changeMu.Lock()
+	fn := c.onChange
+	c.changeMu.Unlock()
+	if fn != nil {
+		go fn()
 	}
+}
+
+// SetRelayIdentity persists the relay pairing. Core is the single owner of
+// the config — UI code must go through here, never mutate the config it was
+// constructed with (a shared-pointer write raced the device map before).
+func (c *Core) SetRelayIdentity(relayURL, agentID, credential string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.RelayURL = relayURL
+	c.cfg.AgentID = agentID
+	c.cfg.Credential = credential
+	return config.Save(c.dir, c.cfg)
+}
+
+// RelayIdentity returns the persisted pairing, if any.
+func (c *Core) RelayIdentity() (relayURL, agentID, credential string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg.RelayURL, c.cfg.AgentID, c.cfg.Credential
 }
 
 // Activity returns the live activity log.

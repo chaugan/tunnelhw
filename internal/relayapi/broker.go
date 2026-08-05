@@ -25,12 +25,16 @@ const (
 	sessionBufCap   = 1 << 20 // per-session receive buffer; backpressure beyond
 )
 
-// Session is one live device session brokered by the relay.
+// Session is one live device session brokered by the relay. Owner is the
+// identity of the credential that opened it (a token hash) — other
+// credentials cannot see or touch the session (design review: a leaked
+// read-only token must not be able to drain another principal's session).
 type Session struct {
 	ID       string    `json:"session_id"`
 	AgentID  string    `json:"agent_id"`
 	DeviceID string    `json:"device_id"`
 	Opened   time.Time `json:"opened"`
+	Owner    string    `json:"-"`
 
 	stream *relay.OpenedStream
 
@@ -61,8 +65,13 @@ func (b *Broker) Devices(agentFilter []string) []relay.DeviceView {
 	return b.hub.Devices(agentFilter)
 }
 
-// Open opens a device and starts the receive pump.
-func (b *Broker) Open(deviceID string, params proto.OpenParams, agentFilter []string) (*Session, error) {
+// reapGrace is how long a dead session stays visible so its final buffered
+// bytes can be drained before the broker forgets it.
+const reapGrace = 2 * time.Minute
+
+// Open opens a device and starts the receive pump. owner identifies the
+// opening credential; only that owner can access the session afterwards.
+func (b *Broker) Open(deviceID string, params proto.OpenParams, agentFilter []string, owner string) (*Session, error) {
 	if params.Baud == 0 {
 		params.Baud = 115200
 	}
@@ -75,13 +84,25 @@ func (b *Broker) Open(deviceID string, params proto.OpenParams, agentFilter []st
 		AgentID:  st.AgentID,
 		DeviceID: st.DeviceID,
 		Opened:   time.Now(),
+		Owner:    owner,
 		stream:   st,
 	}
 	s.cond = sync.NewCond(&s.mu)
 	b.mu.Lock()
 	b.sessions[s.ID] = s
 	b.mu.Unlock()
-	go s.pump()
+	go func() {
+		s.pump()
+		// The stream is dead (agent gone or closed). Keep the entry around
+		// briefly for a final drain, then reap so ghost sessions don't
+		// accumulate when consumers vanish without closing.
+		time.Sleep(reapGrace)
+		b.mu.Lock()
+		if cur, ok := b.sessions[s.ID]; ok && cur == s {
+			delete(b.sessions, s.ID)
+		}
+		b.mu.Unlock()
+	}()
 	return s, nil
 }
 
