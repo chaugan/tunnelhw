@@ -40,10 +40,10 @@ type Fingerprint struct {
 }
 
 var (
-	linuxNative  = regexp.MustCompile(`^/dev/tty(S|AMA|SAC)\d+$`)
-	linuxBlue    = regexp.MustCompile(`^/dev/rfcomm\d+$`)
-	darwinBlue   = regexp.MustCompile(`(?i)^/dev/(cu|tty)\..*bluetooth`)
-	windowsCOM   = regexp.MustCompile(`^COM(\d+)$`)
+	linuxNative = regexp.MustCompile(`^/dev/tty(S|AMA|SAC)\d+$`)
+	linuxBlue   = regexp.MustCompile(`^/dev/rfcomm\d+$`)
+	darwinBlue  = regexp.MustCompile(`(?i)^/dev/(cu|tty)\..*bluetooth`)
+	windowsCOM  = regexp.MustCompile(`^COM(\d+)$`)
 )
 
 // FingerprintOf derives the tiered fingerprint for a port (see

@@ -17,12 +17,12 @@ import (
 
 // Guardrails (design review: bounded reads, caps, no indefinite blocking).
 const (
-	MaxReadBytes    = 256 * 1024
-	DefaultReadMax  = 4096
-	MaxReadTimeout  = 60 * time.Second
-	DefaultTimeout  = 2 * time.Second
-	MaxWriteBytes   = 256 * 1024
-	sessionBufCap   = 1 << 20 // per-session receive buffer; backpressure beyond
+	MaxReadBytes   = 256 * 1024
+	DefaultReadMax = 4096
+	MaxReadTimeout = 60 * time.Second
+	DefaultTimeout = 2 * time.Second
+	MaxWriteBytes  = 256 * 1024
+	sessionBufCap  = 1 << 20 // per-session receive buffer; backpressure beyond
 )
 
 // Session is one live device session brokered by the relay. Owner is the

@@ -8,10 +8,10 @@ import (
 // Entry is one activity-log line. Metadata only — device payloads are never
 // logged (ARCHITECTURE.md §7).
 type Entry struct {
-	Time  time.Time `json:"time"`
-	Kind  string    `json:"kind"` // info|open|close|control|denied|tunnel|error
-	Text  string    `json:"text"`
-	Seq   uint64    `json:"seq"`
+	Time time.Time `json:"time"`
+	Kind string    `json:"kind"` // info|open|close|control|denied|tunnel|error
+	Text string    `json:"text"`
+	Seq  uint64    `json:"seq"`
 }
 
 // Activity is a bounded in-memory ring of entries.

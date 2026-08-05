@@ -350,7 +350,7 @@ type Session struct {
 	Port       serialdev.Port
 	Opened     time.Time
 
-	mu               sync.Mutex
+	mu                sync.Mutex
 	bytesIn, bytesOut uint64
 }
 

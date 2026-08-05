@@ -22,11 +22,11 @@ import (
 )
 
 const (
-	helloTimeout  = 15 * time.Second
-	openTimeout   = 15 * time.Second
-	ctrlRPCWait   = 10 * time.Second
-	heartbeatSec  = 30
-	wsReadLimit   = 2 << 20
+	helloTimeout = 15 * time.Second
+	openTimeout  = 15 * time.Second
+	ctrlRPCWait  = 10 * time.Second
+	heartbeatSec = 30
+	wsReadLimit  = 2 << 20
 )
 
 type pendingMap struct {
