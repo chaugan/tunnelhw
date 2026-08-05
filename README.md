@@ -5,7 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/chaugan/tunnelhw)](https://github.com/chaugan/tunnelhw/releases)
 
 **Plug a serial device into your machine and let an LLM on another machine use
-it — as if it were plugged in there.**
+it, as if it were plugged in there.**
 
 You choose which devices are exposed, from a web UI on your own machine.
 Nothing is exposed by default.
@@ -13,16 +13,16 @@ Nothing is exposed by default.
 - **No public address needed.** If the LLM's machine runs `sshd`, the agent
   dials out over SSH and the relay listens on loopback only. No open ports, no
   certificates, works from behind NAT. (A direct TLS connection is also
-  supported — see [Deployment topologies](#deployment-topologies).)
+  supported; see [Deployment topologies](#deployment-topologies).)
 - **Every device gets a readable name** like `amber-falcon`, stable across
-  replugs — that is the handle the LLM uses.
+  replugs. That is the handle the LLM uses.
 - **The LLM talks to it over MCP** (`list_devices`, `open_device`, `read`,
   `write`, `set_params`, `drain`, `close_session`), or a plain JSON API if it
   doesn't speak MCP.
 - **Serial first:** USB adapters, native COM ports and UARTs, PCI serial
   cards, RS-232/485, Bluetooth SPP.
 - **Foreground or background:** run either binary directly, or install it as a
-  Windows service / systemd unit / launchd agent — see
+  Windows service / systemd unit / launchd agent; see
   [Running as a service](#running-as-a-service).
 
 Prebuilt binaries for Windows, Linux and macOS are on the
@@ -38,29 +38,29 @@ Two binaries: the **agent** on the machine with the hardware, the **relay** on
 the machine running the LLM. This walks the recommended SSH setup, which needs
 no public address anywhere.
 
-### 1. Relay — on the machine that runs the LLM
+### 1. Relay (on the machine that runs the LLM)
 
 `serve` runs in the foreground, so use two terminals (or install it as a
-service — see [Running as a service](#running-as-a-service)).
+service; see [Running as a service](#running-as-a-service)).
 
 ```bash
-# Terminal 1 — loopback only, so not reachable from the network. SSH provides
+# Terminal 1: loopback only, so not reachable from the network. SSH provides
 # the encryption, and the relay refuses plaintext on any other address.
 ./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
 ```
 
 ```bash
-# Terminal 2 — mint the two secrets you need
+# Terminal 2: mint the two secrets you need
 ./tunnelhw-relay-linux-amd64 pair-token                  # single use, 5 min
 ./tunnelhw-relay-linux-amd64 api-token --name llm-host   # bearer token for the LLM
 ```
 
 > **`--insecure-dev` turns TLS off.** It is permitted *only* on a loopback
-> address, where SSH or a local proxy supplies the encryption — the relay
+> address, where SSH or a local proxy supplies the encryption. The relay
 > refuses to start with it on any other address. For a directly reachable
 > relay use `--tls-cert` and `--tls-key`. See [SECURITY.md](SECURITY.md).
 
-### 2. Agent — on the machine with the hardware
+### 2. Agent (on the machine with the hardware)
 
 ```powershell
 .\tunnelhw-agent-windows-amd64.exe      # or the linux/darwin binary
@@ -70,11 +70,11 @@ Open <http://127.0.0.1:8787> and:
 
 1. Choose **Through SSH**, enter the LLM machine's SSH host and username, and a
    private key (prefer a key or `ssh-agent`; a password also works). Leave the
-   relay URL blank — it defaults to the relay on the SSH host's loopback.
+   relay URL blank, since it defaults to the relay on the SSH host's loopback.
    `~/.ssh/config` is honoured, so a short alias resolves as it does in your
    terminal.
-2. Paste the pairing token. Verify the SSH host-key fingerprint when prompted —
-   it is recorded, and a *changed* key is refused from then on.
+2. Paste the pairing token. Verify the SSH host-key fingerprint when prompted.
+   It is recorded, and a *changed* key is refused from then on.
 3. Toggle **Exposed** on the devices the LLM may use. Each gets its word ID.
 
 ![The TunnelHW agent's localhost control panel: relay status, the device list
@@ -82,12 +82,12 @@ with per-device Exposed and Control-lines toggles, live sessions, and the
 activity log](docs/images/web-ui.png)
 
 Everything the LLM can reach is decided here: a device the LLM may use is one
-you ticked. The activity log records every open, close and control-line change
-— note that byte counts are logged, never payloads.
+you ticked. The activity log records every open, close and control-line change.
+Note that byte counts are logged, never payloads.
 
 ### 3. Connect the LLM
 
-The MCP server is built into the relay — nothing extra to install. See
+The MCP server is built into the relay, so there is nothing extra to install. See
 [Connecting the LLM](#connecting-the-llm).
 
 ---
@@ -120,7 +120,7 @@ Any client that takes a JSON config:
 }
 ```
 
-**Restart the LLM session afterwards** — MCP servers load when a session
+**Restart the LLM session afterwards.** MCP servers load when a session
 starts, so registering one mid-session does nothing.
 
 ### Verify it
@@ -133,7 +133,7 @@ curl -s -H "Authorization: Bearer <api token>" http://127.0.0.1:8443/api/v1/devi
 ```
 
 An empty `{"devices":[]}` with the agent connected means nothing is toggled
-**Exposed** yet — that is the usual cause.
+**Exposed** yet, which is the usual cause.
 
 ### Rules worth knowing as the operator
 
@@ -165,7 +165,7 @@ behaviour.
   enable **Control lines** for that device, because DTR/RTS can reset a board
   or drop it into its bootloader.
 - **Read-only tokens** (`api-token --read-only`) cannot open a session, and
-  sessions are visible only to the token that opened them — so read-only is in
+  sessions are visible only to the token that opened them, so read-only is in
   practice *list-only*, good for inventory rather than watching live traffic.
   `api-token --agents <id,…>` restricts a token to named agents.
 
@@ -194,7 +194,7 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" $B/sessions/$SID
 
 ## Running as a service
 
-Both binaries run in the foreground by default — just launch them. Either can
+Both binaries run in the foreground by default: just launch them. Either can
 instead be installed as a background service using the platform's own service
 manager: **Windows services**, **systemd**, or **launchd**. Same subcommands
 everywhere.
@@ -215,7 +215,7 @@ Installed **for the current user** where the platform supports it (systemd
 `--user`, launchd LaunchAgent); add `--system` for a system-wide service.
 Running any service command under `sudo` implies `--system`, since a per-user
 service owned by root is never what's intended. You do not need to repeat the
-scope on later commands — `start`, `status` and `uninstall` find whichever
+scope on later commands: `start`, `status` and `uninstall` find whichever
 service is actually installed.
 
 ### Where credentials live
@@ -229,7 +229,7 @@ The relay's credential store follows the same split, automatically:
 
 So `sudo tunnelhw-relay pair-token` and a system-scoped service agree on one
 store without any flags. Every command prints which store it is using, and
-warns if that store is empty while the other one has credentials — the failure
+warns if that store is empty while the other one has credentials, the failure
 mode being minting tokens the running relay will never see.
 
 If you move between scopes and want to keep existing pairings and tokens, copy
@@ -251,7 +251,7 @@ pairing** and cannot see your SSH keys.
 
 Consequences when you do run the agent as a system service:
 
-- It needs its own **pairing token** — its config directory is empty.
+- It needs its own **pairing token**, because its config directory is empty.
 - The same board gets a **different word ID**, because the `fingerprint → name`
   map lives in that config directory.
 - You are asked to approve the SSH **host key** again, for the same reason.
@@ -262,9 +262,9 @@ Platform notes, which `service install` also prints:
 
 | Platform | Notes |
 |---|---|
-| **Linux** | A `--user` service stops at logout unless you enable lingering: `sudo loginctl enable-linger $USER`. Serial ports usually need `sudo usermod -aG dialout $USER`. Installing over plain SSH may fail with no user D-Bus instance — the error explains the options. |
+| **Linux** | A `--user` service stops at logout unless you enable lingering: `sudo loginctl enable-linger $USER`. Serial ports usually need `sudo usermod -aG dialout $USER`. Installing over plain SSH may fail with no user D-Bus instance; the error explains the options. |
 | **macOS** | Installs a LaunchAgent for your user; `--system` writes a LaunchDaemon. |
-| **Windows** | Installing, starting and stopping a service needs Administrator rights, so `service install` **raises a UAC prompt** and re-runs itself elevated — no need for an Administrator terminal. Windows has no per-user services, so the service runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable — either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
+| **Windows** | Installing, starting and stopping a service needs Administrator rights, so `service install` **raises a UAC prompt** and re-runs itself elevated; you do not need an Administrator terminal. Windows has no per-user services, so the service runs as **LocalSystem**, whose home directory is not yours. For the agent that means your `~/.ssh` keys and ssh-agent are unavailable, so either pass explicit paths (`--config-dir`, an absolute key path in the web UI) or run the agent in the foreground. |
 
 The service records the binary's current path, so reinstall if you move it.
 
@@ -272,9 +272,9 @@ The service records the binary's current path, so reinstall if you move it.
 
 | Symptom | Cause and fix |
 |---|---|
-| `command not found` after installing | The binary is not on `PATH`. Use its full path — `service install` prints the exact command to run. |
+| `command not found` after installing | The binary is not on `PATH`. Use its full path; `service install` prints the exact command to run. |
 | `status` says `not installed`, but it is | An older build required `--system` on every action. Upgrade; the scope is now detected. |
-| `Init already exists` when installing | The other scope is already installed. Uninstall that one first — the error names its path. |
+| `Init already exists` when installing | The other scope is already installed. Uninstall that one first; the error names its path. |
 | Service starts, then rejects your agent and tokens | It is reading a different credential store. Check the path each command prints, and copy the store across if needed. |
 | Agent service runs but cannot authenticate over SSH | It is not running as you, so `~/.ssh` is not yours. Use an absolute key path, or run the agent in the foreground. |
 | Linux: install fails over SSH with no user D-Bus | `systemctl --user` needs a login session. Use `sudo … --system`, or `sudo loginctl enable-linger $USER` and reconnect. |
@@ -286,7 +286,7 @@ the relay is reachable only on the LLM machine's loopback:
 
 ```mermaid
 flowchart LR
-    subgraph LOCAL["🖥️  YOUR MACHINE — where the hardware is"]
+    subgraph LOCAL["🖥️  YOUR MACHINE (where the hardware is)"]
         direction TB
         HW["🔌 Serial device<br/><i>COM3 · /dev/ttyUSB0</i>"]
         AGENT["<b>TunnelHW agent</b><br/>enumerate · bridge · dial out"]
@@ -295,7 +295,7 @@ flowchart LR
         WEBUI -.->|"expose + grants"| AGENT
     end
 
-    subgraph REMOTE["☁️  LLM MACHINE — relay not reachable from the network"]
+    subgraph REMOTE["☁️  LLM MACHINE (relay not reachable from the network)"]
         direction TB
         SSHD["🔑 sshd :22<br/><i>the only listening port</i>"]
         RELAY["<b>TunnelHW relay</b><br/>127.0.0.1:8443 · loopback only"]
@@ -360,7 +360,7 @@ public IP.
 | **B. Direct** | Relay reachable at `wss://host:8443` with `--tls-cert`/`--tls-key`; agent uses **Direct to relay**. | Same LAN/VPN, or the relay legitimately has a public address. |
 | **C. Overlay network** | Both machines on Tailscale/WireGuard; relay on the LLM machine, agent uses its mesh address. | Neither machine is reachable and you would rather not use SSH. |
 
-The agent has an SSH client built in for topology A — there is no `ssh -L` to
+The agent has an SSH client built in for topology A, so there is no `ssh -L` to
 run or keep alive.
 
 ## Security
@@ -393,7 +393,7 @@ TunnelHW is not a general-purpose tunnel. It is a device control plane for LLMs.
 
 - **A silent device is normal.** Plenty of firmware prints nothing until
   prompted or reset. With control lines granted, a DTR/RTS pulse produces a
-  boot log — on an ESP32 the reset reason (`rst:0x15 USB_UART_CHIP_RESET`)
+  boot log. On an ESP32 the reset reason (`rst:0x15 USB_UART_CHIP_RESET`)
   confirms the control line reached the chip.
 - **Weak fingerprints move.** A board reporting no USB serial number is
   identified by VID:PID plus port path, so replugging it elsewhere can produce
@@ -404,7 +404,7 @@ TunnelHW is not a general-purpose tunnel. It is a device control plane for LLMs.
 - **Minting a token needs no relay restart**, but registering an MCP server
   does need an LLM session restart.
 - **macOS cross-compiles** enumerate with degraded metadata (no USB serial
-  numbers — macOS needs cgo/IOKit). Build natively with `CGO_ENABLED=1` for
+  numbers, since macOS needs cgo/IOKit). Build natively with `CGO_ENABLED=1` for
   full fingerprinting.
 
 ## Verifying a release
@@ -427,7 +427,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 ```
 
 Windows binaries are **not** code-signed yet, so SmartScreen may still warn on
-first run — provenance proves origin, not Authenticode trust.
+first run; provenance proves origin, not Authenticode trust.
 
 ## Development
 
@@ -470,4 +470,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

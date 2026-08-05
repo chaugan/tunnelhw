@@ -5,12 +5,12 @@ read this before deploying it.
 
 ## Reporting a vulnerability
 
-Report privately — **do not open a public issue**. Use GitHub's
+Report privately, and **do not open a public issue**. Use GitHub's
 [private vulnerability reporting](https://github.com/chaugan/tunnelhw/security/advisories/new)
 on this repository.
 
 If that page is unavailable to you, open a normal issue asking for a private
-channel and **leave out the details** — a maintainer will follow up.
+channel and **leave out the details**; a maintainer will follow up.
 
 Please include the version of both binaries, the deployment topology (SSH
 carrier / direct TLS / overlay), and a reproduction if you have one. This is a
@@ -25,7 +25,7 @@ a service anyone else operates for you.
 
 What that means concretely:
 
-- **A compromised relay can operate every *currently exposed* device** — open
+- **A compromised relay can operate every *currently exposed* device**: open
   sessions, read, write, and (where granted) toggle control lines. The relay
   must see device bytes in clear because it hosts the MCP server that serves
   them to the LLM. There is deliberately no end-to-end encryption past the
@@ -54,8 +54,8 @@ the hardware from a user who already has an LLM session on it.
 
   | Command | Verdict |
   |---|---|
-  | `serve --listen 127.0.0.1:8443 --insecure-dev` reached via SSH | fine — SSH provides the encryption |
-  | `serve --listen 0.0.0.0:8443 --insecure-dev` | **refused** — the relay will not start; credentials and device traffic would cross the network in clear |
+  | `serve --listen 127.0.0.1:8443 --insecure-dev` reached via SSH | fine, since SSH provides the encryption |
+  | `serve --listen 0.0.0.0:8443 --insecure-dev` | **refused**. The relay will not start; credentials and device traffic would cross the network in clear |
   | `serve --listen :8443 --tls-cert … --tls-key …` | correct for a directly reachable relay |
 
 - **Control lines are a separate per-device grant.** Toggling DTR/RTS or
@@ -77,21 +77,21 @@ the hardware from a user who already has an LLM session on it.
 
 - **On the relay**, only hashes are stored; plaintext exists only at mint time.
 - **On the agent**, `agent.json` holds its relay credential in clear, protected
-  by file permissions (`0600` in a `0700` directory) — there is no OS keychain
+  by file permissions (`0600` in a `0700` directory). There is no OS keychain
   integration. If you pair over SSH using a **password or key passphrase**,
   that secret is stored there too. Prefer a key file or `ssh-agent`, and treat
   that file as sensitive.
 - A **read-only** token cannot open a session, and sessions are only visible to
-  the token that opened them — so in practice a read-only token is *list-only*.
+  the token that opened them, so in practice a read-only token is *list-only*.
   It is useful for inventory and monitoring, not for observing live traffic.
-- **Do not commit tokens.** MCP client configs often contain them — check
+- **Do not commit tokens.** MCP client configs often contain them, so check
   before pushing dotfiles.
 - Tokens typed on a command line land in shell history and are visible in
   `ps`. Prefer a config file or environment variable.
 - Revoke an agent with `tunnelhw-relay revoke-agent <id>`; re-mint API tokens
   and update clients if one leaks.
-- Serial payloads are **never logged**, and there is no switch to enable it —
-  logs carry metadata only (device IDs, connection state, byte counts). Serial
+- Serial payloads are **never logged**, and there is no switch to enable it.
+  Logs carry metadata only (device IDs, connection state, byte counts). Serial
   traffic often contains firmware secrets, so no code path writes it anywhere.
 
 ## Supported versions

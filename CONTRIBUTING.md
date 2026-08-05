@@ -1,8 +1,8 @@
 # Contributing to TunnelHW
 
 TunnelHW exposes local serial hardware to an LLM running somewhere else. It is
-two binaries — an **agent** on the machine with the hardware, and a **relay** on
-the machine with the LLM — plus an MCP adapter hosted in the relay process.
+two binaries (an **agent** on the machine with the hardware, and a **relay** on
+the machine with the LLM), plus an MCP adapter hosted in the relay process.
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before proposing anything
 structural; it records what was decided and why, including the choices that were
 deliberately rejected.
@@ -12,7 +12,7 @@ deliberately rejected.
 
 ## Build and test
 
-Go ≥ 1.26.5 (see `go.mod`). No Node toolchain, no code generation, no `make` —
+Go ≥ 1.26.5 (see `go.mod`). No Node toolchain, no code generation, no `make`:
 the web UI is vanilla JS embedded with `go:embed`. If Go is not on your `PATH`
 (on the primary dev machine it lives in `your Go installation`), export it
 first:
@@ -27,7 +27,7 @@ scripts/build.sh <version> # cross-compiles every target into dist/
 
 `scripts/build.sh` builds agent and relay for windows/linux/darwin on amd64 and
 arm64 with `CGO_ENABLED=0`. It embeds Windows version resources if `go-winres`
-is on your `PATH` and warns if it is not — the build still succeeds without it.
+is on your `PATH` and warns if it is not; the build still succeeds without it.
 Run it before sending a change that touches platform-specific code, since
 `go build` on your own machine only covers one of eleven targets.
 
@@ -46,7 +46,7 @@ Hardware is still worth using when you touch `internal/serialdev`
 convincingly). Say in the PR what you tested against and on which OS.
 
 macOS caveat: cross-compiled darwin binaries fall back to degraded enumeration
-(no USB serial numbers — that needs cgo/IOKit). `internal/serialdev` has both
+(no USB serial numbers, which needs cgo/IOKit). `internal/serialdev` has both
 paths behind build tags; check which one your change affects.
 
 ## Package layout
@@ -57,7 +57,7 @@ cmd/relay/          relay binary: serve + pair-token/api-token/agents/revoke
 internal/agent/     device registry, exclusive sessions, tunnel client
 internal/auth/      pairing tokens, agent credentials, API tokens (hashed)
 internal/config/    agent config persistence (atomic, 0600)
-internal/mcp/       MCP adapter — a thin mapping onto relayapi, no logic
+internal/mcp/       MCP adapter, a thin mapping onto relayapi, no logic
 internal/mux/       pinned yamux configuration
 internal/names/     curated wordlists + stable word-pair IDs
 internal/proto/     control protocol: framing, versioning, correlation IDs
@@ -73,15 +73,15 @@ web/                zero-build UI assets (go:embed)
 Two layering rules matter more than the rest:
 
 - **`internal/relayapi` is the business logic.** `internal/mcp` and the JSON API
-  are both adapters over it. Never add behaviour that only one surface gets — if
+  are both adapters over it. Never add behaviour that only one surface gets. If
   MCP and `/api/v1/` disagree about what a device does, that is a bug.
 - **Agent and relay credentials are separate principals.** Agent enrollment
   (`/pair`) and LLM-host bearer tokens go through different middleware on
   purpose. Do not merge them for convenience.
 
 The relay's threat model assumes it is trusted and self-hosted. Changes that
-quietly widen what the relay can do to a device — or what an LLM can do without
-an explicit grant — need to be argued for, not just implemented.
+quietly widen what the relay can do to a device, or what an LLM can do without
+an explicit grant, need to be argued for rather than just implemented.
 
 ## Code style
 
@@ -98,7 +98,7 @@ an explicit grant — need to be argued for, not just implemented.
   context; don't log-and-return the same error twice.
 - No new dependencies without a reason in the PR description. The dependency
   list is short deliberately, and the single-static-binary install story is a
-  feature — nothing that requires cgo, a runtime, or a build toolchain.
+  feature: nothing that requires cgo, a runtime, or a build toolchain.
 - Serial payloads never reach the logs. Logs carry metadata only: device IDs,
   connection state, byte counts.
 
@@ -112,7 +112,7 @@ an explicit grant — need to be argued for, not just implemented.
 - `go test -race ./...` and `go vet ./...` must pass before you open the PR.
 - Update the docs in the same commit: `README.md` for anything user-visible
   (flags, tools, topologies), `docs/ARCHITECTURE.md` for design decisions.
-- Protocol changes in `internal/proto` need a version-negotiation story — an
+- Protocol changes in `internal/proto` need a version-negotiation story: an
   older agent talking to a newer relay must fail loudly, not corrupt a session.
 - Open an issue first for anything large or architectural. A rejected 800-line
   PR helps nobody.
@@ -131,7 +131,7 @@ an explicit grant — need to be argued for, not just implemented.
   no USB serial number directly improve whether a word ID survives a replug.
 - **Docs.** Setup walkthroughs for topologies B and C, and for MCP clients other
   than Claude Code.
-- **Web UI.** Small, self-contained, zero-build — a good place to start without
+- **Web UI.** Small, self-contained and zero-build, so a good place to start without
   learning the whole protocol first.
 
 ## License
