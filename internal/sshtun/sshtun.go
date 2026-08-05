@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -145,10 +146,11 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 // dial performs one handshake. hostKeyAlgos, when non-empty, restricts the
 // host key algorithms offered.
 func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, error) {
-	auths, err := authMethods(cfg)
+	plan, err := authMethods(cfg)
 	if err != nil {
 		return nil, err
 	}
+	defer plan.close()
 	hostKey, err := hostKeyCallback(cfg)
 	if err != nil {
 		return nil, err
@@ -167,7 +169,7 @@ func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, erro
 	}
 	sc, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
 		User:              cfg.User,
-		Auth:              auths,
+		Auth:              plan.methods,
 		HostKeyCallback:   hostKey,
 		HostKeyAlgorithms: hostKeyAlgos,
 		Timeout:           15 * time.Second,
@@ -183,6 +185,11 @@ func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, erro
 		}
 		if errors.As(err, &mismatch) {
 			return nil, mismatch
+		}
+		if strings.Contains(err.Error(), "unable to authenticate") {
+			return nil, fmt.Errorf("sshtun: %s@%s rejected our credentials. Tried: %s. "+
+				"If your key is not in this list, set its exact path in the key field",
+				cfg.User, addr, plan.Summary())
 		}
 		return nil, fmt.Errorf("sshtun: ssh handshake with %s: %w", addr, err)
 	}
@@ -272,17 +279,42 @@ func (c *Client) Close() error {
 	return cl.Close()
 }
 
-// authMethods assembles auth in preference order: explicit key, the usual
-// ~/.ssh keys, then password.
-func authMethods(cfg Config) ([]ssh.AuthMethod, error) {
-	var methods []ssh.AuthMethod
-	add := func(path string, required bool) error {
+// authPlan is the assembled credential set plus a human-readable account of
+// what was tried. "unable to authenticate" is useless on its own; the tried
+// list is what lets a user see that their key was skipped because it needs a
+// passphrase, or that the agent held no keys.
+type authPlan struct {
+	methods []ssh.AuthMethod
+	tried   []string
+	closers []func()
+}
+
+func (p *authPlan) close() {
+	for _, c := range p.closers {
+		c()
+	}
+}
+
+// Summary describes the credentials attempted, for error messages.
+func (p *authPlan) Summary() string {
+	if len(p.tried) == 0 {
+		return "no credentials available"
+	}
+	return strings.Join(p.tried, "; ")
+}
+
+// authMethods assembles auth in preference order: explicit key, the running
+// ssh-agent, the usual ~/.ssh keys, then password.
+func authMethods(cfg Config) (*authPlan, error) {
+	p := &authPlan{}
+
+	addKeyFile := func(path string, required bool) error {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			if required {
 				return fmt.Errorf("sshtun: read key %s: %w", path, err)
 			}
-			return nil
+			return nil // absent default key: not worth mentioning
 		}
 		var signer ssh.Signer
 		if cfg.KeyPassphrase != "" {
@@ -291,27 +323,60 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, error) {
 			signer, err = ssh.ParsePrivateKey(raw)
 		}
 		if err != nil {
+			var needsPass *ssh.PassphraseMissingError
+			if errors.As(err, &needsPass) {
+				p.tried = append(p.tried, path+" (SKIPPED: encrypted, needs a passphrase)")
+				if required {
+					return fmt.Errorf("sshtun: key %s is passphrase-protected — supply the passphrase", path)
+				}
+				return nil
+			}
 			if required {
 				return fmt.Errorf("sshtun: parse key %s: %w", path, err)
 			}
+			p.tried = append(p.tried, path+" (SKIPPED: unreadable as a private key)")
 			return nil
 		}
-		methods = append(methods, ssh.PublicKeys(signer))
+		p.tried = append(p.tried, fmt.Sprintf("%s (%s)", path, ssh.FingerprintSHA256(signer.PublicKey())))
+		p.methods = append(p.methods, ssh.PublicKeys(signer))
 		return nil
 	}
 
 	if cfg.KeyPath != "" {
-		if err := add(cfg.KeyPath, true); err != nil {
+		if err := addKeyFile(cfg.KeyPath, true); err != nil {
 			return nil, err
 		}
-	} else if home, err := os.UserHomeDir(); err == nil {
-		for _, name := range []string{"id_ed25519", "id_ecdsa", "id_rsa"} {
-			add(filepath.Join(home, ".ssh", name), false)
+	}
+
+	// The ssh-agent is where a key lives when login is passwordless but no
+	// usable key file is on disk (or the file is encrypted and unlocked once
+	// via ssh-add). On Windows this is a named pipe, not SSH_AUTH_SOCK.
+	if conn, err := dialAgent(); err == nil {
+		ag := agent.NewClient(conn)
+		signers, sErr := ag.Signers()
+		if sErr == nil && len(signers) > 0 {
+			p.methods = append(p.methods, ssh.PublicKeys(signers...))
+			p.tried = append(p.tried, fmt.Sprintf("ssh-agent at %s (%d key(s))", agentAddr(), len(signers)))
+			p.closers = append(p.closers, func() { conn.Close() })
+		} else {
+			conn.Close()
+			p.tried = append(p.tried, fmt.Sprintf("ssh-agent at %s (no keys loaded)", agentAddr()))
 		}
 	}
+
+	if cfg.KeyPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			for _, name := range []string{"id_ed25519", "id_ecdsa", "id_rsa"} {
+				if err := addKeyFile(filepath.Join(home, ".ssh", name), false); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
 	if cfg.Password != "" {
-		methods = append(methods, ssh.Password(cfg.Password))
-		methods = append(methods, ssh.KeyboardInteractive(
+		p.methods = append(p.methods, ssh.Password(cfg.Password))
+		p.methods = append(p.methods, ssh.KeyboardInteractive(
 			func(name, instruction string, questions []string, echos []bool) ([]string, error) {
 				answers := make([]string, len(questions))
 				for i := range questions {
@@ -319,11 +384,13 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, error) {
 				}
 				return answers, nil
 			}))
+		p.tried = append(p.tried, "password")
 	}
-	if len(methods) == 0 {
-		return nil, errors.New("sshtun: no usable SSH credentials — set a key file or a password")
+
+	if len(p.methods) == 0 {
+		return nil, fmt.Errorf("sshtun: no usable SSH credentials — set a key file or password. Looked at: %s", p.Summary())
 	}
-	return methods, nil
+	return p, nil
 }
 
 // knownHostsPath resolves the known_hosts file, creating it if absent.
