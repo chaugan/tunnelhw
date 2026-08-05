@@ -240,5 +240,12 @@ func printPostInstallNotes(spec Spec) {
 	if runtime.GOOS == "linux" {
 		fmt.Println("  NOTE: serial ports usually require group membership:  sudo usermod -aG dialout $USER")
 	}
-	fmt.Printf("  start it with:  %s service start\n", spec.Name)
+	// Print the path actually used, not the bare service name: the binary is
+	// rarely on PATH, and a system service needs the same privilege to start
+	// as it did to install.
+	start := exe + " service start"
+	if !spec.UserScoped() && runtime.GOOS != "windows" {
+		start = "sudo " + start
+	}
+	fmt.Printf("  start it with:  %s\n", start)
 }
