@@ -97,7 +97,7 @@ QUIC without touching device logic.
 
 | Phase | Class | Mechanism |
 |---|---|---|
-| v1 | Serial (USB-CDC, UART, RS-232) | `go.bug.st/serial` — Arduino, ESP32, debug consoles, industrial gear |
+| v1 | Serial — **any** serial port the OS sees: USB-CDC adapters, native COM ports / motherboard UARTs, PCI/PCIe serial cards, RS-232/485, Bluetooth SPP virtual ports | `go.bug.st/serial` — Arduino, ESP32, debug consoles, industrial gear, legacy equipment |
 | v2 | Raw TCP endpoints on the user's LAN | TCP bridge. **SSRF guard designed now:** targets must be user-allowlisted CIDR:port entries in the UI; link-local/metadata ranges blocked by default |
 | v3 | Full USB passthrough | USB/IP; deliberately deferred (kernel drivers, privileged services) |
 
@@ -111,9 +111,20 @@ The stream-bridge core is device-class-agnostic; later classes are additive.
   ~65k space is ample; when a relay has multiple paired agents, IDs are
   namespaced by agent. On the rare collision, a third word is appended.
 - **Stable**: the agent persists `fingerprint → word-id` atomically in local
-  config. Fingerprint preference order: USB serial number (strong) →
-  VID:PID + USB port-path (**weak** — UI shows a confidence warning and offers
-  a user override). Never a bare OS path (`/dev/ttyUSB0`, `COM3`).
+  config. Fingerprinting is **transport-agnostic and tiered** — USB is one
+  transport, not an assumption; native COM ports and other non-USB serial
+  hardware are first-class:
+  - **Strong** — USB serial number, when the port is a USB device that
+    reports one.
+  - **Medium** — native/fixed port identity: a motherboard UART or PCI/PCIe
+    serial card's platform-stable name (`COM1`, `/dev/ttyS0`) *is* its
+    hardware identity and doesn't move across replugs — acceptable as-is.
+  - **Weak** — USB VID:PID + port-path (no serial number), or any
+    hot-pluggable port identified only by an OS-assigned name
+    (`/dev/ttyUSB0`, high-numbered `COMn`, Bluetooth SPP): these renumber
+    when devices are added/removed. UI shows a confidence warning and offers
+    a user override.
+  - The tier is shown per device in the UI; the user can always pin/override.
 - Every device also has an internal **UUID** as the durable identity; the
   word-id is the presentation-layer handle. It is a handle, **not a secret**
   (the UI copy says so): authz comes from credentials + the expose-list.
