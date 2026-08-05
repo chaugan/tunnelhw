@@ -68,6 +68,14 @@ Open <http://127.0.0.1:8787> and:
    it is recorded, and a *changed* key is refused from then on.
 3. Toggle **Exposed** on the devices the LLM may use. Each gets its word ID.
 
+![The TunnelHW agent's localhost control panel: relay status, the device list
+with per-device Exposed and Control-lines toggles, live sessions, and the
+activity log](docs/images/web-ui.png)
+
+Everything the LLM can reach is decided here: a device the LLM may use is one
+you ticked. The activity log records every open, close and control-line change
+— note that byte counts are logged, never payloads.
+
 ### 3. Connect the LLM
 
 The MCP server is built into the relay — nothing extra to install. See
