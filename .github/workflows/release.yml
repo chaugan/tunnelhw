@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach binaries to (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Building and publishing are split deliberately. The build runs repository
+  # code — tests, scripts/build.sh, a code-generation tool — and must never
+  # hold a token that can write to the repository. Only the publish job, which
+  # checks nothing out and runs no project code, gets contents: write.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # sign the build provenance attestation
+      attestations: write
+      actions: write        # let setup-go save its module cache
+    steps:
+      - name: Validate the tag
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The tag becomes -X main.version=<tag> inside a single -ldflags
+          # string, so a tag containing spaces could smuggle extra linker flags
+          # into the build. Allow only a plain version.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "Refusing tag '$TAG' — expected vX.Y.Z" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # workflow_dispatch names a tag; a tag push already checks it out.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Deliberately no check-latest: released bytes should depend on the
+          # toolchain named in go.mod, not on whatever shipped that day.
+          go-version-file: go.mod
+
+      - name: Install go-winres
+        # Embeds Windows version metadata; without it the .exe files carry no
+        # product info, one of the signals Defender scores against an unsigned
+        # binary. Pinned so the released bytes stay reproducible.
+        run: go install github.com/tc-hib/go-winres@v0.3.3
+
+      - name: Verify before shipping
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Build all targets
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          scripts/build.sh "${TAG#v}"
+          cd dist
+          sha256sum tunnelhw-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          # The checksum file is attested too, so verifying it is as strong as
+          # verifying an individual binary.
+          subject-path: |
+            dist/tunnelhw-*
+            dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-binaries
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the only job that can touch the repository
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binaries
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            # Never overwrite: published bytes are what people checksummed and
+            # what the attestation covers. Re-releasing needs a new tag.
+            existing=$(gh release view "$TAG" --repo "$REPO" --json assets -q '.assets | length')
+            if [ "$existing" -gt 0 ]; then
+              echo "Release $TAG already has $existing assets; refusing to overwrite." >&2
+              echo "Cut a new tag instead." >&2
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --repo "$REPO"
+          else
+            # --verify-tag: without it, gh would happily invent the tag from
+            # the default branch if it does not exist.
+            gh release create "$TAG" dist/* \
+              --repo "$REPO" \
+              --verify-tag \
+              --title "TunnelHW $TAG" \
+              --generate-notes
+          fi

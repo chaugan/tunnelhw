@@ -44,6 +44,7 @@ build darwin  amd64 agent tunnelhw-agent-darwin-amd64
 build darwin  arm64 agent tunnelhw-agent-darwin-arm64
 # Relay — runs on the server next to the LLM.
 build windows amd64 relay tunnelhw-relay-windows-amd64.exe
+build windows arm64 relay tunnelhw-relay-windows-arm64.exe
 build linux   amd64 relay tunnelhw-relay-linux-amd64
 build linux   arm64 relay tunnelhw-relay-linux-arm64
 build darwin  amd64 relay tunnelhw-relay-darwin-amd64

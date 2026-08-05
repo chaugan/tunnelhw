@@ -406,6 +406,28 @@ TunnelHW is not a general-purpose tunnel. It is a device control plane for LLMs.
   numbers — macOS needs cgo/IOKit). Build natively with `CGO_ENABLED=1` for
   full fingerprinting.
 
+## Verifying a release
+
+Release binaries are built by GitHub Actions from a tagged commit and carry a
+signed [build provenance attestation](https://docs.github.com/actions/security-guides/using-artifact-attestations),
+so you can check they came from this repository's workflow rather than someone's
+laptop:
+
+```bash
+gh attestation verify tunnelhw-agent-windows-amd64.exe --repo chaugan/tunnelhw
+```
+
+`SHA256SUMS` is attested too, so verifying it is as strong as verifying each
+binary individually:
+
+```bash
+gh attestation verify SHA256SUMS --repo chaugan/tunnelhw
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Windows binaries are **not** code-signed yet, so SmartScreen may still warn on
+first run — provenance proves origin, not Authenticode trust.
+
 ## Development
 
 ```bash
@@ -417,6 +439,11 @@ scripts/build.sh <version> # cross-compile everything into dist/
 The end-to-end tests wire the real agent to the real relay over a live
 WebSocket with an in-memory serial device, and a second suite runs the same
 path through an in-process SSH server.
+
+Every push and pull request runs vet, race-enabled tests and a build on
+**Linux, Windows and macOS**, plus formatting, module tidiness, a cross-compile
+of all release targets, `govulncheck`, and CodeQL. Releases are built and
+attested by the same CI, never by hand.
 
 ```
 cmd/agent/          # local agent binary + tunnel lifecycle

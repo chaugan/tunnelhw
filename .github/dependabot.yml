@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs, so nothing updates them without this.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR for routine bumps; security updates still arrive separately.
+      go-dependencies:
+        patterns: ["*"]
+        update-types: [minor, patch]
