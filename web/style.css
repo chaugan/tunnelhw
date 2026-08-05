@@ -148,3 +148,6 @@ ul.plain li:last-child { border-bottom: 0; }
 }
 .hostkey p { margin: 0 0 .5rem; }
 .hostkey button { width: auto; margin-right: .5rem; }
+
+td.actions { white-space: nowrap; }
+td.actions button + button { margin-left: .4rem; }

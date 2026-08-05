@@ -201,3 +201,107 @@ func TestEndToEnd(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// Hiding a device must also end any session already holding it, and the
+// per-device release must free the port without disturbing the tunnel.
+// Otherwise "revoke access" in the UI is a lie: the consumer keeps streaming.
+func TestHideAndReleaseFreeTheDevice(t *testing.T) {
+	store, err := auth.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := relay.NewHub(store)
+	broker := relayapi.NewBroker(hub)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.HandleWS)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tok, _, _ := store.MintPairingToken()
+	agentID, cred, err := store.ExchangePairing(tok, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	cfg, _ := config.Load(dir)
+	ports := []serialdev.PortInfo{{Path: "/dev/ttyFAKE9", IsUSB: true, VID: "0403", PID: "6001", SerialNumber: "SN9"}}
+	var mu sync.Mutex
+	var last *fakePort
+	core := agent.New(dir, cfg,
+		func() ([]serialdev.PortInfo, error) { return ports, nil },
+		func(path string, p proto.OpenParams) (serialdev.Port, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			last = newFakePort()
+			return last, nil
+		})
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	dev := core.UIDevices()[0]
+	if err := core.SetExposed(dev.UUID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	tun := &agent.Tunnel{Core: core, URL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws",
+		AgentID: agentID, Credential: cred, InsecureDev: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tun.Run(ctx)
+	waitFor(t, "connected", func() bool { s, _ := tun.Status(); return s == "connected" })
+	waitFor(t, "announced", func() bool { return len(hub.Devices(nil)) == 1 })
+
+	// --- hiding a device kills the live session ---
+	s1, err := broker.Open(dev.ID, proto.OpenParams{Baud: 115200}, nil, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SetExposed(dev.UUID, false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "session ended by hiding", func() bool { return len(core.Sessions()) == 0 })
+	mu.Lock()
+	closed := last.closed
+	mu.Unlock()
+	if !closed {
+		t.Fatal("hiding a device must close the serial port, not just stop announcing it")
+	}
+	// The consumer's reads must stop yielding device data.
+	if r := s1.Read(500*time.Millisecond, 64, nil); len(r.Data) != 0 {
+		t.Fatalf("data still flowing after hide: %q", r.Data)
+	}
+	broker.Close(s1.ID)
+
+	// --- release frees a device without hiding it or dropping the tunnel ---
+	if err := core.SetExposed(dev.UUID, true); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "re-announced", func() bool { return len(hub.Devices(nil)) == 1 })
+	var s2 *relayapi.Session
+	waitFor(t, "reopen", func() bool {
+		var err error
+		s2, err = broker.Open(dev.ID, proto.OpenParams{Baud: 115200}, nil, "owner")
+		return err == nil
+	})
+	if !core.ReleaseDevice(dev.UUID, "test") {
+		t.Fatal("ReleaseDevice reported no session to release")
+	}
+	waitFor(t, "released", func() bool { return len(core.Sessions()) == 0 })
+	if state, _ := tun.Status(); state != "connected" {
+		t.Fatalf("release must not disturb the tunnel; state = %s", state)
+	}
+	// Still exposed, and immediately reusable.
+	waitFor(t, "device reusable after release", func() bool {
+		s3, err := broker.Open(dev.ID, proto.OpenParams{Baud: 115200}, nil, "owner")
+		if err != nil {
+			return false
+		}
+		broker.Close(s3.ID)
+		return true
+	})
+	if core.ReleaseDevice(dev.UUID, "test") {
+		t.Fatal("releasing an idle device must report nothing to release")
+	}
+	_ = s2
+}

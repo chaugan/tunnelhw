@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/devices", s.devices)
 	m.HandleFunc("POST /api/devices/{uuid}", s.deviceToggle)
 	m.HandleFunc("POST /api/devices/{uuid}/regenerate", s.regenerate)
+	m.HandleFunc("POST /api/devices/{uuid}/release", s.release)
 	m.HandleFunc("GET /api/activity", s.activity)
 	m.HandleFunc("GET /api/sessions", s.sessions)
 	m.HandleFunc("POST /api/pair", s.pair)
@@ -233,6 +234,15 @@ func (s *Server) regenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// release hands one device back for local use by force-closing the session
+// holding it. The device stays exposed, and the tunnel and every other
+// device are untouched.
+func (s *Server) release(w http.ResponseWriter, r *http.Request) {
+	uuid := r.PathValue("uuid")
+	released := s.core.ReleaseDevice(uuid, "released by operator")
+	jsonOut(w, http.StatusOK, map[string]bool{"ok": true, "released": released})
 }
 
 func (s *Server) activity(w http.ResponseWriter, r *http.Request) {

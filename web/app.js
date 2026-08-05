@@ -154,6 +154,11 @@ async function toggleDevice(uuid, field, value) {
   finally { refreshDevices(); }
 }
 
+async function release(uuid) {
+  try { await api("/api/devices/" + encodeURIComponent(uuid) + "/release", {}); }
+  finally { refreshDevices(); refreshSessions(); }
+}
+
 async function regenerate(uuid) {
   try { await api("/api/devices/" + encodeURIComponent(uuid) + "/regenerate", {}); }
   finally { refreshDevices(); }
@@ -194,7 +199,16 @@ function deviceRow(d) {
   tr.appendChild(mkToggle(d.meta.control_lines_allowed, "allow_control_lines",
     "Allow DTR/RTS and baud changes — these can reset boards or enter bootloaders"));
 
-  const tdBtn = el("td");
+  const tdBtn = el("td", "actions");
+  if (d.busy) {
+    // The LLM is holding this port right now, so nothing local can open it.
+    // Release hands it straight back without touching the tunnel.
+    const rel = el("button", "danger", "Release");
+    rel.title = "Force-close the session holding this device and hand the port " +
+      "back for local use. The device stays exposed.";
+    rel.addEventListener("click", () => release(d.uuid));
+    tdBtn.appendChild(rel);
+  }
   const btn = el("button", "ghost", "Regenerate");
   btn.title = "Assign a fresh word-ID";
   btn.addEventListener("click", () => regenerate(d.uuid));

@@ -192,9 +192,34 @@ func (c *Core) byUUIDLocked(id string) (string, *deviceState) {
 	return "", nil
 }
 
-// SetExposed toggles exposure for a device by UUID.
+// SetExposed toggles exposure for a device by UUID. Hiding a device also
+// ends any session already holding it: revoking access in the UI has to mean
+// the consumer loses the device now, not whenever it happens to disconnect.
+// The record is updated first so no new session can slip in behind the
+// release.
 func (c *Core) SetExposed(uuid string, exposed bool) error {
-	return c.updateRec(uuid, func(r *config.DeviceRecord) { r.Exposed = exposed })
+	if err := c.updateRec(uuid, func(r *config.DeviceRecord) { r.Exposed = exposed }); err != nil {
+		return err
+	}
+	if !exposed {
+		c.ReleaseDevice(uuid, "hidden by operator")
+	}
+	return nil
+}
+
+// ReleaseDevice force-closes whatever session is holding a device, handing
+// the port back for local use without disturbing the tunnel or any other
+// device. Reports whether a session was actually closed.
+func (c *Core) ReleaseDevice(uuid, reason string) bool {
+	c.mu.Lock()
+	sid, held := c.claims[uuid]
+	c.mu.Unlock()
+	if !held {
+		return false
+	}
+	// CloseSession takes the lock itself, so it must be called unlocked.
+	c.CloseSession(sid, reason)
+	return true
 }
 
 // SetControlLines toggles the privileged control-lines/baud grant.
