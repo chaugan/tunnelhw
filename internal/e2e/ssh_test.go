@@ -2,7 +2,9 @@ package e2e
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -32,9 +34,14 @@ import (
 // exactly the forwarding TunnelHW relies on. It stands in for the sshd on the
 // LLM machine.
 type sshServer struct {
-	addr   string
-	signer ssh.Signer
-	ln     net.Listener
+	addr string
+	// signer is the ed25519 host key — the one OpenSSH prefers and therefore
+	// the one that ends up in known_hosts. The server also offers ECDSA,
+	// which Go's client prefers, so the two disagree exactly as a real
+	// server does.
+	signer      ssh.Signer
+	ecdsaSigner ssh.Signer
+	ln          net.Listener
 }
 
 func startSSHServer(t *testing.T, user, password string) *sshServer {
@@ -47,6 +54,14 @@ func startSSHServer(t *testing.T, user, password string) *sshServer {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ecPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecSigner, err := ssh.NewSignerFromKey(ecPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			if c.User() == user && string(pass) == password {
@@ -56,12 +71,13 @@ func startSSHServer(t *testing.T, user, password string) *sshServer {
 		},
 	}
 	cfg.AddHostKey(signer)
+	cfg.AddHostKey(ecSigner)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &sshServer{addr: ln.Addr().String(), signer: signer, ln: ln}
+	s := &sshServer{addr: ln.Addr().String(), signer: signer, ecdsaSigner: ecSigner, ln: ln}
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -259,4 +275,32 @@ func TestSSHChangedHostKeyRefused(t *testing.T) {
 	if !errors.As(err, &changed) {
 		t.Fatalf("err = %v, want ChangedHostKeyError", err)
 	}
+}
+
+// A server offers several host keys; OpenSSH records only the one it
+// negotiated (ed25519), while Go's client prefers ECDSA. The client must
+// recognise the host anyway — reporting "host key CHANGED" here is a false
+// alarm that reads as an attack to the user.
+func TestSSHKnownHostsAlgorithmMismatch(t *testing.T) {
+	srv := startSSHServer(t, "u", "p")
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+
+	// Exactly what OpenSSH would have written: the ed25519 key only.
+	line := knownhosts.Line([]string{knownhosts.Normalize(srv.addr)}, srv.signer.PublicKey())
+	if err := os.WriteFile(knownHosts, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := sshtun.Config{
+		Host: srv.addr, User: "u", Password: "p",
+		KnownHostsPath: knownHosts,
+		// Deliberately false: the host is already known, so no approval
+		// should be needed and none may be silently granted.
+		AcceptNewHostKey: false,
+	}
+	c, err := sshtun.Dial(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("known host with a different algorithm on file must connect, got: %v", err)
+	}
+	c.Close()
 }

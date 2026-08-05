@@ -98,11 +98,53 @@ type Client struct {
 	client *ssh.Client
 }
 
+// hostKeyMismatch means known_hosts has key(s) for this host but not the one
+// presented. Usually that is an algorithm mismatch rather than a real change:
+// a server offers several host keys (ed25519, ecdsa, rsa) and known_hosts
+// typically records only the one OpenSSH negotiated. It carries the
+// algorithms that ARE on file so the dial can be retried pinned to them,
+// which is what OpenSSH does.
+type hostKeyMismatch struct {
+	host        string
+	fingerprint string
+	knownAlgos  []string
+}
+
+func (e *hostKeyMismatch) Error() string {
+	return fmt.Sprintf("host key mismatch for %s (presented %s)", e.host, e.fingerprint)
+}
+
 // Dial establishes the SSH connection.
 func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	if !cfg.Valid() {
 		return nil, errors.New("sshtun: ssh host and user are required")
 	}
+	c, err := dial(ctx, cfg, nil)
+	if err == nil {
+		return c, nil
+	}
+	// A mismatch on the first attempt is not yet evidence of a changed key:
+	// we may simply have negotiated an algorithm known_hosts has no entry
+	// for. Retry pinned to the algorithms actually on file — OpenSSH's
+	// behaviour — and only then believe it.
+	var mismatch *hostKeyMismatch
+	if !errors.As(err, &mismatch) || len(mismatch.knownAlgos) == 0 {
+		return nil, err
+	}
+	c, retryErr := dial(ctx, cfg, mismatch.knownAlgos)
+	if retryErr == nil {
+		return c, nil
+	}
+	var confirmed *hostKeyMismatch
+	if errors.As(retryErr, &confirmed) {
+		return nil, &ChangedHostKeyError{Host: confirmed.host, Fingerprint: confirmed.fingerprint}
+	}
+	return nil, retryErr
+}
+
+// dial performs one handshake. hostKeyAlgos, when non-empty, restricts the
+// host key algorithms offered.
+func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, error) {
 	auths, err := authMethods(cfg)
 	if err != nil {
 		return nil, err
@@ -124,17 +166,51 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		conn.SetDeadline(time.Now().Add(30 * time.Second))
 	}
 	sc, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
-		User:            cfg.User,
-		Auth:            auths,
-		HostKeyCallback: hostKey,
-		Timeout:         15 * time.Second,
+		User:              cfg.User,
+		Auth:              auths,
+		HostKeyCallback:   hostKey,
+		HostKeyAlgorithms: hostKeyAlgos,
+		Timeout:           15 * time.Second,
 	})
 	if err != nil {
 		conn.Close()
+		// Unwrap our own host-key errors so callers can inspect them rather
+		// than a string-formatted handshake failure.
+		var unknown *UnknownHostKeyError
+		var mismatch *hostKeyMismatch
+		if errors.As(err, &unknown) {
+			return nil, unknown
+		}
+		if errors.As(err, &mismatch) {
+			return nil, mismatch
+		}
 		return nil, fmt.Errorf("sshtun: ssh handshake with %s: %w", addr, err)
 	}
 	conn.SetDeadline(time.Time{})
 	return &Client{cfg: cfg, client: ssh.NewClient(sc, chans, reqs)}, nil
+}
+
+// algosFor lists the host key algorithms recorded for a host. An "ssh-rsa"
+// entry also implies the SHA-2 signature algorithms for the same key, which
+// modern servers require now that SHA-1 is disabled.
+func algosFor(known []knownhosts.KnownKey) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(a string) {
+		if a != "" && !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	for _, k := range known {
+		t := k.Key.Type()
+		add(t)
+		if t == ssh.KeyAlgoRSA {
+			add(ssh.KeyAlgoRSASHA256)
+			add(ssh.KeyAlgoRSASHA512)
+		}
+	}
+	return out
 }
 
 // DialContext opens a connection *from the SSH server* to addr. Addresses are
@@ -292,8 +368,14 @@ func hostKeyCallback(cfg Config) (ssh.HostKeyCallback, error) {
 			return err
 		}
 		if len(kerr.Want) > 0 {
-			// A key is on file and it is not this one. Never auto-accept.
-			return &ChangedHostKeyError{Host: hostname, Fingerprint: ssh.FingerprintSHA256(key)}
+			// Keys are on file but not this one. Could be a genuine change or
+			// just an algorithm we have no entry for — Dial retries pinned to
+			// the recorded algorithms before concluding anything.
+			return &hostKeyMismatch{
+				host:        hostname,
+				fingerprint: ssh.FingerprintSHA256(key),
+				knownAlgos:  algosFor(kerr.Want),
+			}
 		}
 		if !cfg.AcceptNewHostKey {
 			return &UnknownHostKeyError{Host: hostname, Fingerprint: ssh.FingerprintSHA256(key)}
