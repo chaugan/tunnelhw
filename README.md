@@ -15,11 +15,19 @@ remote server — as if the hardware were attached to that server.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
+TunnelHW is designed as a **self-hostable open-source system**: you run the
+agent on your machine and the relay on your own server. Nothing in the code
+assumes a particular machine or operator — all endpoints, ports, and
+credentials are configuration. (The repo is private during early development
+and will be opened up.)
+
 ## Status
 
-Early design phase. The architecture draft is under review by an external
-model panel (Codex / Grok / Kimi) per the sparring playbook; implementation
-starts once the design is adjudicated.
+Design phase complete. Architecture v0.2 was independently reviewed by a
+three-model panel (Codex / Grok / Kimi) — see
+[docs/DESIGN-REVIEW-2026-08-05.md](docs/DESIGN-REVIEW-2026-08-05.md) for the
+full adjudication. Implementation follows the locked order in
+[docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md).
 
 ## Repo layout (planned)
 
