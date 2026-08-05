@@ -38,6 +38,77 @@ The architecture was independently reviewed by a three-model panel
 adjudication, and the component code went through a second security +
 correctness review round.
 
+## How it fits together
+
+Every arrow is an **outbound** connection. The relay listens on loopback only,
+and the hardware machine opens no ports at all — so this works from behind NAT
+with nothing published to the internet.
+
+```mermaid
+flowchart LR
+    subgraph LOCAL["🖥️  YOUR MACHINE — where the hardware is"]
+        direction TB
+        HW["🔌 Serial device<br/><i>COM3 · /dev/ttyUSB0</i>"]
+        AGENT["<b>TunnelHW agent</b><br/>enumerate · bridge · dial out"]
+        WEBUI["🔒 Web UI · 127.0.0.1:8787<br/><i>you choose what is exposed</i>"]
+        HW <-->|"serial I/O"| AGENT
+        WEBUI -.->|"expose + grants"| AGENT
+    end
+
+    subgraph REMOTE["☁️  LLM MACHINE — nothing published to the internet"]
+        direction TB
+        SSHD["🔑 sshd :22<br/><i>the only reachable port</i>"]
+        RELAY["<b>TunnelHW relay</b><br/>127.0.0.1:8443 · loopback only"]
+        LLM["🤖 LLM<br/><i>MCP client</i>"]
+        SSHD -->|"forward → 127.0.0.1:8443"| RELAY
+        LLM <-->|"/mcp · bearer token"| RELAY
+    end
+
+    AGENT ==>|"<b>outbound</b> SSH · works behind NAT"| SSHD
+
+    classDef box fill:#1f2937,stroke:#4b5563,color:#f9fafb
+    classDef safe fill:#064e3b,stroke:#10b981,color:#ecfdf5
+    classDef llm fill:#312e81,stroke:#818cf8,color:#eef2ff
+    class HW,AGENT,SSHD,RELAY box
+    class WEBUI safe
+    class LLM llm
+```
+
+Step by step — the one-time setup, then what happens on every device call:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant UI as Agent web UI
+    participant Agent as Agent
+    participant Dev as Serial device
+    participant Relay as Relay + MCP
+    participant LLM as LLM
+
+    Note over You,Relay: ONE-TIME SETUP
+    You->>Relay: relay pair-token (single use, 5 min)
+    You->>UI: SSH host, user, key + the token
+    UI->>Relay: POST /pair (through the SSH tunnel)
+    Relay-->>UI: agent_id + long-lived credential
+    You->>UI: toggle a device to Exposed
+    Agent->>Relay: connect, announce exposed devices only
+
+    Note over LLM,Dev: EVERY DEVICE INTERACTION
+    LLM->>Relay: open_device("amber-falcon")
+    Relay->>Agent: open stream (device, baud)
+    Agent->>Dev: open port, exclusive
+    Relay-->>LLM: session_id
+    LLM->>Relay: write("hello")
+    Relay->>Agent: bytes
+    Agent->>Dev: bytes out
+    Dev-->>Agent: bytes back
+    LLM->>Relay: read(timeout_ms, max_bytes)
+    Relay-->>LLM: text / base64
+    LLM->>Relay: close_session
+    Agent->>Dev: close port, device free again
+```
+
 ## Deployment topologies
 
 The relay is a small process that both ends connect *out* to. It does **not**
