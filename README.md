@@ -1,48 +1,181 @@
 # TunnelHW
 
-Expose selected local hardware (serial devices first) to an LLM agent running on a
-remote server — as if the hardware were attached to that server.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/chaugan/tunnelhw)](https://github.com/chaugan/tunnelhw/releases)
 
-- A cross-platform **agent** (Windows/Linux/macOS) runs on the machine with the
-  hardware and serves a **localhost web UI** where the user picks which devices
-  to expose. Nothing is exposed by default.
-- The agent dials **outbound** to a **relay** on the remote server (reverse-tunnel
-  pattern over WSS), so it works behind NAT/firewalls.
-- Each exposed device gets a stable, human-readable two-word ID like
-  `amber-falcon` — the handle the LLM uses to open it.
-- The relay exposes the devices to the LLM via a built-in **MCP server**
-  (`list_devices`, `open_device`, `read`, `write`, `set_params`, `drain`,
-  `close_session`) and an equivalent plain **JSON API**.
+**Plug a serial device into your machine and let an LLM on another machine use
+it — as if it were plugged in there.**
 
-If the LLM's machine runs `sshd`, the agent can tunnel over SSH and the relay
-never needs a public address — see [Deployment topologies](#deployment-topologies).
+You choose which devices are exposed, from a web UI on your own machine.
+Nothing is exposed by default.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+- **No public address needed.** If the LLM's machine runs `sshd`, the agent
+  dials out over SSH and the relay listens on loopback only. No open ports, no
+  certificates, works from behind NAT. (A direct TLS connection is also
+  supported — see [Deployment topologies](#deployment-topologies).)
+- **Every device gets a readable name** like `amber-falcon`, stable across
+  replugs — that is the handle the LLM uses.
+- **The LLM talks to it over MCP** (`list_devices`, `open_device`, `read`,
+  `write`, `set_params`, `drain`, `close_session`), or a plain JSON API if it
+  doesn't speak MCP.
+- **Serial first:** USB adapters, native COM ports and UARTs, PCI serial
+  cards, RS-232/485, Bluetooth SPP.
 
-TunnelHW is designed as a **self-hostable open-source system**: you run the
-agent on your machine and the relay on your own server. Nothing in the code
-assumes a particular machine or operator — all endpoints, ports, and
-credentials are configuration. (The repo is private during early development
-and will be opened up.)
+Prebuilt binaries for Windows, Linux and macOS are on the
+[releases page](https://github.com/chaugan/tunnelhw/releases). Design notes are
+in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the security model is in
+[SECURITY.md](SECURITY.md).
 
-## Status
+---
 
-Working end to end, including against real hardware. Prebuilt binaries for
-Windows, Linux, and macOS are on the
-[releases page](https://github.com/chaugan/tunnelhw/releases) — you do not need
-to build from source.
+## Quickstart
 
-The architecture was independently reviewed by a three-model panel
-(Codex / Grok / Kimi); see
-[docs/DESIGN-REVIEW-2026-08-05.md](docs/DESIGN-REVIEW-2026-08-05.md) for the
-adjudication, and the component code went through a second security +
-correctness review round.
+Two binaries: the **agent** on the machine with the hardware, the **relay** on
+the machine running the LLM. This walks the recommended SSH setup, which needs
+no public address anywhere.
+
+### 1. Relay — on the machine that runs the LLM
+
+```bash
+# Loopback only: not reachable from the network. SSH provides the encryption,
+# so no TLS certificates are needed here.
+./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
+
+./tunnelhw-relay-linux-amd64 pair-token                  # single use, 5 min
+./tunnelhw-relay-linux-amd64 api-token --name llm-host   # bearer token for the LLM
+```
+
+> **`--insecure-dev` turns TLS off.** That is correct *only* on loopback
+> reached through SSH, as above. Never combine it with `--listen 0.0.0.0` or a
+> public address — agent credentials and device traffic would cross the network
+> in clear. For a directly reachable relay use `--tls-cert` and `--tls-key`
+> instead. See [SECURITY.md](SECURITY.md).
+
+### 2. Agent — on the machine with the hardware
+
+```powershell
+.\tunnelhw-agent-windows-amd64.exe      # or the linux/darwin binary
+```
+
+Open <http://127.0.0.1:8787> and:
+
+1. Choose **Through SSH**, enter the LLM machine's SSH host and username, and a
+   private key (prefer a key or `ssh-agent`; a password also works). Leave the
+   relay URL blank — it defaults to the relay on the SSH host's loopback.
+   `~/.ssh/config` is honoured, so a short alias resolves as it does in your
+   terminal.
+2. Paste the pairing token. Verify the SSH host-key fingerprint when prompted —
+   it is recorded, and a *changed* key is refused from then on.
+3. Toggle **Exposed** on the devices the LLM may use. Each gets its word ID.
+
+### 3. Connect the LLM
+
+The MCP server is built into the relay — nothing extra to install. See
+[Connecting the LLM](#connecting-the-llm).
+
+---
+
+## Connecting the LLM
+
+### Register the MCP server
+
+Point your MCP client at the relay's `/mcp` endpoint with the `api-token`
+bearer. The relay runs on the LLM's own machine, so this is usually loopback.
+
+Claude Code:
+
+```bash
+claude mcp add tunnelhw --transport http http://127.0.0.1:8443/mcp \
+  --header "Authorization: Bearer <api token>"
+```
+
+Any client that takes a JSON config:
+
+```json
+{
+  "mcpServers": {
+    "tunnelhw": {
+      "type": "http",
+      "url": "http://127.0.0.1:8443/mcp",
+      "headers": { "Authorization": "Bearer <api token>" }
+    }
+  }
+}
+```
+
+**Restart the LLM session afterwards** — MCP servers load when a session
+starts, so registering one mid-session does nothing.
+
+### Verify it
+
+Ask the LLM to list devices; it should name your exposed device. Independently
+of the LLM:
+
+```bash
+curl -s -H "Authorization: Bearer <api token>" http://127.0.0.1:8443/api/v1/devices
+```
+
+An empty `{"devices":[]}` with the agent connected means nothing is toggled
+**Exposed** yet — that is the usual cause.
+
+### Rules worth knowing as the operator
+
+The tool descriptions teach the model these; you need them to predict its
+behaviour.
+
+| Tool | Purpose |
+|---|---|
+| `list_devices` | word ID, transport, online/busy, fingerprint confidence |
+| `open_device` | claim a device, returns a `session_id` |
+| `read` | bounded read: `timeout_ms`, `max_bytes`, optional `delimiter` |
+| `write` | send data, `utf8` or `base64` |
+| `set_params` | change baud / toggle DTR / RTS mid-session |
+| `drain` | wait for buffered output to reach the hardware |
+| `close_session` | release the device |
+
+- **Devices are exclusive.** One session at a time; a second `open_device`
+  fails with a `busy` error naming the holder.
+- **The port is only held during a session.** When no session is open the agent
+  holds nothing, so your own terminal or IDE can use the device normally.
+- **You can take a device back at any time.** **Release** in the web UI
+  force-closes the session holding one device, leaving the tunnel and every
+  other device untouched. Hiding a device also ends its session.
+- **Reads never block indefinitely** and may return partial data.
+- **Sessions do not survive a reconnect.** Session IDs become invalid and
+  nothing is replayed; the model re-opens.
+- **Control lines are a separate grant.** `set_params` is refused unless you
+  enable **Control lines** for that device, because DTR/RTS can reset a board
+  or drop it into its bootloader.
+- **Read-only tokens** (`api-token --read-only`) allow only `list_devices` and
+  `read`.
+
+### Without MCP
+
+Every capability is a plain JSON API under `/api/v1/` with the same token:
+
+```bash
+TOKEN=<api token>; B=http://127.0.0.1:8443/api/v1
+
+curl -s -H "Authorization: Bearer $TOKEN" $B/devices
+
+SID=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"device_id":"amber-falcon","params":{"baud":115200}}' $B/sessions \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"data":"hello\r\n"}' $B/sessions/$SID/write
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"timeout_ms":3000,"max_bytes":4096}' $B/sessions/$SID/read
+
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" $B/sessions/$SID
+```
+
+---
 
 ## How it fits together
 
-Every arrow is an **outbound** connection. The relay listens on loopback only,
-and the hardware machine opens no ports at all — so this works from behind NAT
-with nothing published to the internet.
+The recommended setup (**topology A**), where the agent dials out over SSH and
+the relay is reachable only on the LLM machine's loopback:
 
 ```mermaid
 flowchart LR
@@ -55,11 +188,11 @@ flowchart LR
         WEBUI -.->|"expose + grants"| AGENT
     end
 
-    subgraph REMOTE["☁️  LLM MACHINE — nothing published to the internet"]
+    subgraph REMOTE["☁️  LLM MACHINE — relay not reachable from the network"]
         direction TB
-        SSHD["🔑 sshd :22<br/><i>the only reachable port</i>"]
+        SSHD["🔑 sshd :22<br/><i>the only listening port</i>"]
         RELAY["<b>TunnelHW relay</b><br/>127.0.0.1:8443 · loopback only"]
-        LLM["🤖 LLM<br/><i>MCP client</i>"]
+        LLM["🤖 LLM<br/><i>MCP client, same machine</i>"]
         SSHD -->|"forward → 127.0.0.1:8443"| RELAY
         LLM <-->|"/mcp · bearer token"| RELAY
     end
@@ -74,7 +207,7 @@ flowchart LR
     class LLM llm
 ```
 
-Step by step — the one-time setup, then what happens on every device call:
+The one-time setup, then what happens on every device call:
 
 ```mermaid
 sequenceDiagram
@@ -111,198 +244,73 @@ sequenceDiagram
 
 ## Deployment topologies
 
-The relay is a small process that both ends connect *out* to. It does **not**
-need a public IP — it only needs to be reachable by the agent. Pick whichever
-of these describes your situation:
+The relay only needs to be reachable **by the agent**. It does not need a
+public IP.
 
-### A. Through SSH — recommended, needs no public address at all
+| | Setup | When |
+|---|---|---|
+| **A. SSH carrier** *(recommended)* | Relay on the LLM machine, bound to loopback; agent dials out over SSH. No certificates, nothing listening but `sshd`. | The LLM machine runs `sshd`. |
+| **B. Direct** | Relay reachable at `wss://host:8443` with `--tls-cert`/`--tls-key`; agent uses **Direct to relay**. | Same LAN/VPN, or the relay legitimately has a public address. |
+| **C. Overlay network** | Both machines on Tailscale/WireGuard; relay on the LLM machine, agent uses its mesh address. | Neither machine is reachable and you would rather not use SSH. |
 
-If the LLM machine runs `sshd`, that is all the reachability you need. Run the
-relay on the LLM machine bound to loopback; the agent connects outbound over
-SSH and reaches the relay on the SSH host's own `127.0.0.1`. SSH provides the
-encryption and server authentication, so no TLS certificates are involved and
-**nothing is exposed to the internet**.
+The agent has an SSH client built in for topology A — there is no `ssh -L` to
+run or keep alive.
 
-```
-Windows agent  ──outbound SSH──▶  LLM machine
-(hardware)                        ├─ sshd
-                                  ├─ relay on 127.0.0.1:8443
-                                  └─ LLM → http://127.0.0.1:8443/mcp
-```
+## Security
 
-The agent has an SSH client built in — no `ssh -L` to run or babysit. In the
-web UI choose **Through SSH**, enter the host and username, and leave the relay
-URL blank (it defaults to `ws://127.0.0.1:8443/ws`, i.e. the relay on the SSH
-host). On first connect the UI shows the server's host-key fingerprint for you
-to verify; it is recorded in `known_hosts` and a *changed* key is refused from
-then on.
+Full detail in [SECURITY.md](SECURITY.md), including how to report a
+vulnerability. The essentials:
 
-### B. Direct — relay reachable from the agent
+- **The relay is trusted and self-hosted.** A compromised relay can operate
+  every *currently exposed* device. It must see device bytes in clear because
+  it serves them to the LLM.
+- **Hidden devices are never disclosed to the relay.** Exposure is opt-in per
+  device and revocable, and hiding a device ends its session immediately.
+- **The API token is a credential for physical access.** Don't commit it; use
+  `--read-only` where that suffices; revoke and re-mint if it leaks.
+- **Control-line access is granted per device**, because it can reset hardware.
+- Serial payloads are never logged; logs carry metadata only.
 
-Agent and relay on the same LAN/VPN, or the relay has a public address. Use
-**Direct to relay** with `wss://host:8443` and run the relay with TLS certs.
+## Compared to the alternatives
 
-### C. Overlay network
+TunnelHW is not a general-purpose tunnel. It is a device control plane for LLMs.
 
-Both machines join Tailscale/WireGuard; the relay runs on the LLM machine and
-the agent uses its private mesh address. Topology B with private addressing.
+| | What it gives you | What it doesn't |
+|---|---|---|
+| `ser2net` / RFC2217 | Serial over TCP | No NAT traversal, no selection UI, no LLM interface, no naming |
+| `ssh -R` / `frp` / ngrok | Generic port forwarding | A port, not a device: no enumeration, no per-device consent, no session model |
+| USB/IP | Full USB passthrough | Kernel drivers, privileged, fragile across platforms; overkill for serial |
+| **TunnelHW** | Enumeration, human-readable stable IDs, per-device consent + grants, exclusive sessions, LLM-safe bounded I/O, MCP and JSON APIs | Not multi-tenant, not a hosted service, serial only for now |
 
-## Quickstart (agent on Windows, relay on Linux)
+## Notes from real use
 
-Download the two binaries you need from the
-[releases page](https://github.com/chaugan/tunnelhw/releases) — or build them
-all yourself (needs Go ≥1.25; output lands in `dist/`):
-
-```bash
-scripts/build.sh 0.2.4
-```
-
-This walks topology **A** (over SSH), which needs no public address.
-
-**1. Relay (on the Linux machine that runs the LLM):**
-
-```bash
-# Loopback-only: nothing is exposed to the network. SSH is the transport,
-# so --insecure-dev is correct here — it means "no TLS", not "no encryption".
-./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
-
-./tunnelhw-relay-linux-amd64 pair-token                  # single-use, 5 min TTL
-./tunnelhw-relay-linux-amd64 api-token --name llm-host   # bearer token for the LLM
-```
-
-(For topology B instead, use `--listen :8443 --tls-cert cert.pem --tls-key key.pem`.)
-
-**2. Agent (Windows machine with the hardware):**
-
-```powershell
-.\tunnelhw-agent-windows-amd64.exe
-```
-
-Open http://127.0.0.1:8787, choose **Through SSH**, enter the LLM machine's SSH
-host and username (plus a key file or password), leave the relay URL blank, and
-paste the pairing token. Verify the host-key fingerprint when prompted. Then
-toggle **Exposed** on the devices the LLM may use — each gets a stable
-word-pair ID like `amber-falcon`.
-
-**3. Give the LLM access.** The MCP server is built into the relay — there is
-nothing extra to install or run. See the next section.
-
-macOS note: cross-compiled darwin binaries enumerate ports with degraded
-metadata (no USB serial numbers — macOS needs cgo/IOKit for that); build
-natively on a Mac with `CGO_ENABLED=1` for full fingerprinting.
-
-## Connecting the LLM
-
-### Register the MCP server
-
-Point your MCP client at the relay's `/mcp` endpoint with the bearer token from
-`api-token`. Because the relay runs on the LLM's own machine, that URL is
-usually loopback.
-
-Claude Code:
-
-```bash
-claude mcp add tunnelhw --transport http http://127.0.0.1:8443/mcp \
-  --header "Authorization: Bearer <api token>"
-```
-
-Any client that takes a JSON config:
-
-```json
-{
-  "mcpServers": {
-    "tunnelhw": {
-      "type": "http",
-      "url": "http://127.0.0.1:8443/mcp",
-      "headers": { "Authorization": "Bearer <api token>" }
-    }
-  }
-}
-```
-
-**Restart the LLM session afterwards.** MCP servers are loaded when a session
-starts — registering one mid-session does not make its tools appear.
-
-### Verify it worked
-
-Ask the LLM to list devices. It should name your exposed device by its word ID.
-To check independently of the LLM:
-
-```bash
-curl -s -H "Authorization: Bearer <api token>" http://127.0.0.1:8443/api/v1/devices
-```
-
-An empty `{"devices":[]}` with the agent connected means nothing has been
-toggled **Exposed** in the agent's web UI yet — that is the usual cause.
-
-### What the LLM can do
-
-No prompting or instructions are needed: the tool descriptions tell the model
-the semantics, including the rules below.
-
-| Tool | Purpose |
-|---|---|
-| `list_devices` | word ID, transport, online/busy, fingerprint confidence |
-| `open_device` | claim a device, returns a `session_id` (baud etc. optional) |
-| `read` | bounded read: `timeout_ms`, `max_bytes`, optional `delimiter` |
-| `write` | send data, `utf8` or `base64` |
-| `set_params` | change baud / toggle DTR / RTS mid-session |
-| `drain` | wait for buffered output to reach the hardware |
-| `close_session` | release the device |
-
-Rules worth knowing as the operator:
-
-- **Devices are exclusive.** One session at a time; a second `open_device`
-  fails with a `busy` error naming the holder.
-- **Reads never block indefinitely** and may return partial data — the model is
-  told to check `timed_out` and read again.
-- **Sessions do not survive a reconnect.** If the agent's tunnel drops, session
-  IDs become invalid and nothing is replayed; the model re-opens.
-- **Control lines are a separate grant.** `set_params` (baud, DTR, RTS) is
-  refused unless you enable **Control lines** for that device in the web UI,
-  because toggling DTR/RTS can reset a board or drop it into its bootloader.
-- **Read-only tokens** (`api-token --read-only`) allow `list_devices` and
-  `read` only — useful for a monitoring LLM.
-
-### If your LLM does not speak MCP
-
-Every capability is available as a plain JSON API under `/api/v1/` with the same
-bearer token. A full round trip:
-
-```bash
-TOKEN=<api token>; B=http://127.0.0.1:8443/api/v1
-
-# 1. find the device
-curl -s -H "Authorization: Bearer $TOKEN" $B/devices
-
-# 2. open it, keeping the session id
-SID=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"device_id":"amber-falcon","params":{"baud":115200}}' $B/sessions \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
-
-# 3. write, then read (text is present when the bytes are valid UTF-8)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"data":"hello\r\n"}' $B/sessions/$SID/write
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"timeout_ms":3000,"max_bytes":4096}' $B/sessions/$SID/read
-
-# 4. always close
-curl -s -X DELETE -H "Authorization: Bearer $TOKEN" $B/sessions/$SID
-```
-
-### Notes from real use
-
-- **A silent device is normal.** Plenty of firmware prints nothing until it is
-  prompted or reset. If the device is granted control lines, a DTR/RTS pulse
-  produces a boot log — on an ESP32 the reset reason (`rst:0x15
-  USB_UART_CHIP_RESET`) even confirms the control line reached the chip.
-- **Weak fingerprints move.** A board that reports no USB serial number is
+- **A silent device is normal.** Plenty of firmware prints nothing until
+  prompted or reset. With control lines granted, a DTR/RTS pulse produces a
+  boot log — on an ESP32 the reset reason (`rst:0x15 USB_UART_CHIP_RESET`)
+  confirms the control line reached the chip.
+- **Weak fingerprints move.** A board reporting no USB serial number is
   identified by VID:PID plus port path, so replugging it elsewhere can produce
-  a *new* word ID. The web UI flags this as weak confidence.
-- **Minting a token does not require a relay restart** (since v0.2.1), but
-  registering an MCP server does require an LLM session restart.
+  a new word ID. The UI flags this as weak confidence.
+- **Host key "changed"** on first connect usually means your `known_hosts` has
+  a different algorithm's key for that host; TunnelHW retries pinned to the
+  recorded algorithms before reporting a change.
+- **Minting a token needs no relay restart**, but registering an MCP server
+  does need an LLM session restart.
+- **macOS cross-compiles** enumerate with degraded metadata (no USB serial
+  numbers — macOS needs cgo/IOKit). Build natively with `CGO_ENABLED=1` for
+  full fingerprinting.
 
-## Repo layout
+## Development
+
+```bash
+go test -race ./...        # no hardware required
+go vet ./...
+scripts/build.sh <version> # cross-compile everything into dist/
+```
+
+The end-to-end tests wire the real agent to the real relay over a live
+WebSocket with an in-memory serial device, and a second suite runs the same
+path through an in-process SSH server.
 
 ```
 cmd/agent/          # local agent binary + tunnel lifecycle
@@ -324,15 +332,8 @@ web/                # zero-build UI assets (go:embed)
 docs/               # architecture & design review
 ```
 
-## Development
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
-```bash
-export PATH=/path/to/go/bin:$PATH
-go test -race ./...        # includes a hardware-free end-to-end test
-scripts/build.sh <version> # cross-compile everything into dist/
-```
+## License
 
-The end-to-end tests wire the real agent to the real relay over a live
-WebSocket with an in-memory serial device, and a second suite runs the same
-path through an in-process SSH server — so the full pipeline is testable
-without any hardware.
+MIT — see [LICENSE](LICENSE).

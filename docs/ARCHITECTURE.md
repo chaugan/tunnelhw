@@ -267,7 +267,7 @@ tunnelhw/
   internal/proto/    # control messages, correlation IDs, version negotiation
   internal/relayapi/ # the versioned core API — MCP maps onto this
   internal/mux/      # websocket+yamux session helpers (pinned config)
-  internal/serial/   # enumeration, fingerprinting, bridging
+  internal/serialdev/ # enumeration, tiered fingerprinting, port I/O
   internal/names/    # curated wordlists + stable per-agent ID assignment
   web/               # zero-build UI sources, embedded via go:embed
   docs/

@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a capability or change.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        TunnelHW is a device-session control plane, not a general-purpose
+        tunnel — see [docs/ARCHITECTURE.md](https://github.com/chaugan/tunnelhw/blob/main/docs/ARCHITECTURE.md)
+        for what is deliberately out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does TunnelHW get in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should happen instead. Name the affected component (agent, relay, MCP adapter, web UI) if you know it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, workarounds you are using now, or existing tools that solve this differently.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: implement
+    attributes:
+      label: Would you implement this?
+      options:
+        - Yes, I would open a PR
+        - Yes, with guidance on where it belongs
+        - "No — suggestion only"
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/chaugan/tunnelhw/blob/main/SECURITY.md
+    about: >
+      Do not open a public issue. TunnelHW handles device credentials and gives
+      an LLM access to physical hardware — follow SECURITY.md to report
+      privately.
