@@ -26,3 +26,4 @@ config.local.*
 # memstack local index data (not project code)
 vectors/
 dist/
+*.syso
