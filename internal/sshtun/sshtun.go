@@ -54,15 +54,46 @@ type Config struct {
 	AcceptNewHostKey bool `json:"accept_new_host_key,omitempty"`
 }
 
-// Addr returns the host:port to dial.
+// Addr returns the host:port to dial, after applying any ~/.ssh/config entry
+// for the host (so a short alias resolves exactly as it does in a terminal).
 func (c Config) Addr() string {
 	if c.Host == "" {
 		return ""
 	}
-	if _, _, err := net.SplitHostPort(c.Host); err == nil {
-		return c.Host
+	return c.resolve().addr
+}
+
+// resolved is a Config with ~/.ssh/config applied.
+type resolved struct {
+	addr          string
+	user          string
+	identityFiles []string
+	viaConfig     bool
+}
+
+func (c Config) resolve() resolved {
+	host, port, hadPort := splitHostPort(c.Host)
+	out := resolved{user: c.User}
+
+	sc := lookupSSHConfig(host)
+	if sc.HostName != "" || sc.User != "" || sc.Port != "" || len(sc.IdentityFiles) > 0 {
+		out.viaConfig = true
 	}
-	return net.JoinHostPort(c.Host, DefaultPort)
+	if sc.HostName != "" {
+		host = sc.HostName
+	}
+	if !hadPort {
+		port = sc.Port
+	}
+	if port == "" {
+		port = DefaultPort
+	}
+	if out.user == "" {
+		out.user = sc.User
+	}
+	out.identityFiles = sc.IdentityFiles
+	out.addr = net.JoinHostPort(host, port)
+	return out
 }
 
 // Valid reports whether the config is complete enough to dial.
@@ -167,8 +198,9 @@ func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, erro
 	} else {
 		conn.SetDeadline(time.Now().Add(30 * time.Second))
 	}
+	user := cfg.resolve().user
 	sc, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
-		User:              cfg.User,
+		User:              user,
 		Auth:              plan.methods,
 		HostKeyCallback:   hostKey,
 		HostKeyAlgorithms: hostKeyAlgos,
@@ -188,8 +220,9 @@ func dial(ctx context.Context, cfg Config, hostKeyAlgos []string) (*Client, erro
 		}
 		if strings.Contains(err.Error(), "unable to authenticate") {
 			return nil, fmt.Errorf("sshtun: %s@%s rejected our credentials. Tried: %s. "+
-				"If your key is not in this list, set its exact path in the key field",
-				cfg.User, addr, plan.Summary())
+				"If your key is not in this list, set its exact path in the key field "+
+				"(run `ssh -v %s@%s true` to see which key your own ssh uses)",
+				user, addr, plan.Summary(), user, addr)
 		}
 		return nil, fmt.Errorf("sshtun: ssh handshake with %s: %w", addr, err)
 	}
@@ -346,6 +379,14 @@ func authMethods(cfg Config) (*authPlan, error) {
 		if err := addKeyFile(cfg.KeyPath, true); err != nil {
 			return nil, err
 		}
+	} else {
+		// IdentityFile entries from ~/.ssh/config: the key the user's own
+		// ssh command would pick for this host.
+		for _, id := range cfg.resolve().identityFiles {
+			if err := addKeyFile(id, false); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// The ssh-agent is where a key lives when login is passwordless but no
@@ -356,7 +397,11 @@ func authMethods(cfg Config) (*authPlan, error) {
 		signers, sErr := ag.Signers()
 		if sErr == nil && len(signers) > 0 {
 			p.methods = append(p.methods, ssh.PublicKeys(signers...))
-			p.tried = append(p.tried, fmt.Sprintf("ssh-agent at %s (%d key(s))", agentAddr(), len(signers)))
+			prints := make([]string, 0, len(signers))
+			for _, s := range signers {
+				prints = append(prints, ssh.FingerprintSHA256(s.PublicKey()))
+			}
+			p.tried = append(p.tried, fmt.Sprintf("ssh-agent at %s [%s]", agentAddr(), strings.Join(prints, ", ")))
 			p.closers = append(p.closers, func() { conn.Close() })
 		} else {
 			conn.Close()
