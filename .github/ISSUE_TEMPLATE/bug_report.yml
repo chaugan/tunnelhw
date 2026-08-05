@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not report security issues here — see
+        Do not report security issues here; see
         [SECURITY.md](https://github.com/chaugan/tunnelhw/blob/main/SECURITY.md).
 
         TunnelHW spans two machines and a serial device, so most of these fields
@@ -17,7 +17,7 @@ body:
       label: The device works locally first
       description: >
         Before anything else, confirm the device works on its own machine
-        without TunnelHW — open it in a normal terminal (PuTTY, `screen`,
+        without TunnelHW: open it in a normal terminal (PuTTY, `screen`,
         `picocom`, Arduino Serial Monitor) and check you can talk to it.
         A device that is already busy, missing a driver, or lacking permissions
         (`dialout` group on Linux) will fail through TunnelHW too, and that is
@@ -53,7 +53,7 @@ body:
   - type: input
     id: agent-os
     attributes:
-      label: Agent machine — OS and version
+      label: Agent machine (OS and version)
       description: The machine the hardware is plugged into.
       placeholder: "Windows 11 24H2 / Ubuntu 24.04 / macOS 15.3 (arm64)"
     validations:
@@ -62,7 +62,7 @@ body:
   - type: input
     id: relay-os
     attributes:
-      label: Relay machine — OS and version
+      label: Relay machine (OS and version)
       description: The machine running the relay and the LLM. Say so if it is the same machine as the agent.
       placeholder: "Debian 12 (amd64)"
     validations:
@@ -81,7 +81,7 @@ body:
     id: relay-version
     attributes:
       label: Relay version
-      description: Mismatched agent and relay versions are a common cause — please check both.
+      description: Mismatched agent and relay versions are a common cause, so please check both.
       placeholder: "0.2.4 (tunnelhw-relay-linux-amd64)"
     validations:
       required: true
@@ -89,12 +89,12 @@ body:
   - type: input
     id: chipset
     attributes:
-      label: Serial device — chipset and VID:PID
+      label: Serial device (chipset and VID:PID)
       description: >
         From Device Manager on Windows, `lsusb` on Linux, or
         `system_profiler SPUSBDataType` on macOS. For a native COM port or a
         PCI/PCIe serial card say so and give the port name.
-      placeholder: "CP2102N, 10c4:ea60 — or: native motherboard UART, COM1"
+      placeholder: "CP2102N, 10c4:ea60, or: native motherboard UART, COM1"
     validations:
       required: true
 
@@ -116,7 +116,7 @@ body:
       label: Relevant logs
       description: >
         Agent and relay console output around the failure. Redact tokens,
-        hostnames, and usernames — pairing tokens and API tokens are
+        hostnames, and usernames. Pairing tokens and API tokens are
         credentials. This is rendered as a code block, no backticks needed.
       render: text
     validations:

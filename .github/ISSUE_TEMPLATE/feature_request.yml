@@ -6,7 +6,7 @@ body:
     attributes:
       value: >
         TunnelHW is a device-session control plane, not a general-purpose
-        tunnel — see [docs/ARCHITECTURE.md](https://github.com/chaugan/tunnelhw/blob/main/docs/ARCHITECTURE.md)
+        tunnel; see [docs/ARCHITECTURE.md](https://github.com/chaugan/tunnelhw/blob/main/docs/ARCHITECTURE.md)
         for what is deliberately out of scope.
 
   - type: textarea
@@ -40,6 +40,6 @@ body:
       options:
         - Yes, I would open a PR
         - Yes, with guidance on where it belongs
-        - "No — suggestion only"
+        - "No, suggestion only"
     validations:
       required: true

@@ -8,7 +8,7 @@
       enumeration that `internal/e2e` cannot reach)
 - [ ] `go test -race ./...` passes
 - [ ] `go vet ./...` passes
-- [ ] Docs updated — `README.md` for user-visible changes (flags, MCP tools,
+- [ ] Docs updated: `README.md` for user-visible changes (flags, MCP tools,
       topologies), `docs/ARCHITECTURE.md` for design decisions
 - [ ] Security impact considered: does this widen what the relay, the LLM, or an
       unpaired caller can reach? Does it touch credentials, the expose-list, the

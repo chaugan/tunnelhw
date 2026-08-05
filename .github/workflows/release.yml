@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   # Building and publishing are split deliberately. The build runs repository
-  # code — tests, scripts/build.sh, a code-generation tool — and must never
+  # code (tests, scripts/build.sh, a code-generation tool) and must never
   # hold a token that can write to the repository. Only the publish job, which
   # checks nothing out and runs no project code, gets contents: write.
   build:
@@ -34,7 +34,7 @@ jobs:
           # string, so a tag containing spaces could smuggle extra linker flags
           # into the build. Allow only a plain version.
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
-            echo "Refusing tag '$TAG' — expected vX.Y.Z" >&2
+            echo "Refusing tag '$TAG'; expected vX.Y.Z" >&2
             exit 1
           fi
 
