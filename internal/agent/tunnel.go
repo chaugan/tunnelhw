@@ -40,12 +40,40 @@ type Tunnel struct {
 	// address. SSH supplies the encryption and server authentication.
 	SSH *sshtun.Config
 
-	state    atomic.Value // string: disconnected|connecting|connected
+	state    atomic.Value // string: stopped|disconnected|connecting|connected
 	lastErr  atomic.Value // string
 	lastPong atomic.Int64 // unix nanos of last pong (one session at a time)
-	mu       sync.Mutex
-	ctrl     *proto.Conn // nil when disconnected
-	kill     func()      // closes current session (kill switch)
+	// stopped latches the kill switch. Without it, Disconnect only severed the
+	// current session and the retry loop reconnected a second later,
+	// re-announcing every exposed device — a safety control that undid itself.
+	stopped atomic.Bool
+	mu      sync.Mutex
+	ctrl    *proto.Conn   // nil when disconnected
+	kill    func()        // closes current session
+	resume  chan struct{} // signals the retry loop to stop waiting
+}
+
+// resumeCh lazily creates the resume signal, since Tunnel is built as a
+// struct literal by its callers.
+func (t *Tunnel) resumeCh() chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.resume == nil {
+		t.resume = make(chan struct{}, 1)
+	}
+	return t.resume
+}
+
+// Stopped reports whether the kill switch is latched.
+func (t *Tunnel) Stopped() bool { return t.stopped.Load() }
+
+// Resume clears the kill switch and reconnects.
+func (t *Tunnel) Resume() {
+	t.stopped.Store(false)
+	select {
+	case t.resumeCh() <- struct{}{}:
+	default:
+	}
 }
 
 // Status reports the tunnel state for the UI.
@@ -59,9 +87,10 @@ func (t *Tunnel) Status() (state, lastErr string) {
 	return
 }
 
-// Disconnect severs the current tunnel session (kill switch); Run's loop
-// will keep retrying unless its context is cancelled.
+// Disconnect is the kill switch: it severs the tunnel and *stays* severed
+// until Resume is called. Reconnecting automatically would defeat the point.
 func (t *Tunnel) Disconnect() {
+	t.stopped.Store(true)
 	t.mu.Lock()
 	k := t.kill
 	t.mu.Unlock()
@@ -79,6 +108,17 @@ func (t *Tunnel) Run(ctx context.Context) {
 	t.Core.OnChange(t.announce) // re-announce on every expose/claim change
 	backoff := backoffMin
 	for {
+		if t.stopped.Load() {
+			// Kill switch latched: hold here rather than reconnecting.
+			t.state.Store("stopped")
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.resumeCh():
+				backoff = backoffMin
+			}
+			continue
+		}
 		t.state.Store("connecting")
 		start := time.Now()
 		err := t.session(ctx)
@@ -96,6 +136,9 @@ func (t *Tunnel) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-t.resumeCh(): // an explicit resume skips the remaining wait
+			backoff = backoffMin
+			continue
 		case <-time.After(backoff):
 		}
 		backoff = min(backoff*2, backoffMax)
@@ -127,6 +170,10 @@ func (t *Tunnel) fail(err error) {
 	t.state.Store("disconnected")
 	t.Core.Activity().Add("error", err.Error())
 }
+
+// Version is sent to the relay in the hello. The binary sets it from its
+// build version.
+var Version = "dev"
 
 // usingSSH reports whether the tunnel rides over an SSH connection.
 func (t *Tunnel) usingSSH() bool { return t.SSH != nil && t.SSH.Valid() }
@@ -176,7 +223,7 @@ func (t *Tunnel) session(ctx context.Context) error {
 		AgentID:       t.AgentID,
 		Credential:    t.Credential,
 		ProtoVersions: []int{proto.Version},
-		AgentVersion:  "tunnelhw-agent/0.1",
+		AgentVersion:  "tunnelhw-agent/" + Version,
 	}); err != nil {
 		return fmt.Errorf("hello: %w", err)
 	}

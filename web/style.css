@@ -151,3 +151,5 @@ ul.plain li:last-child { border-bottom: 0; }
 
 td.actions { white-space: nowrap; }
 td.actions button + button { margin-left: .4rem; }
+
+button.primary { background: var(--ok, #2ea043); color: #fff; }

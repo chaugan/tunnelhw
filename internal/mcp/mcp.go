@@ -27,6 +27,10 @@ import (
 	"github.com/chaugan/tunnelhw/internal/relayapi"
 )
 
+// Version is reported to MCP clients. The binary sets it from its build
+// version; a literal here would drift every release.
+var Version = "dev"
+
 // grant is the verified capability of one request's bearer token. owner is
 // the token's identity (its SHA-256 hex) — sessions are only visible to the
 // credential that opened them.
@@ -102,7 +106,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{
 		Name:    "tunnelhw",
 		Title:   "TunnelHW remote hardware",
-		Version: "0.2.0",
+		Version: Version,
 	}, nil)
 
 	sdk.AddTool(s, &sdk.Tool{

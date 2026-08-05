@@ -300,8 +300,68 @@ func TestHideAndReleaseFreeTheDevice(t *testing.T) {
 		broker.Close(s3.ID)
 		return true
 	})
+	// Close notifies the agent asynchronously, so the claim can still be held
+	// for a moment. Wait for it to drop before asserting there is nothing left
+	// to release — otherwise this assertion is a coin flip.
+	waitFor(t, "claim dropped after close", func() bool { return len(core.Sessions()) == 0 })
 	if core.ReleaseDevice(dev.UUID, "test") {
 		t.Fatal("releasing an idle device must report nothing to release")
 	}
 	_ = s2
+}
+
+// The kill switch must latch. Before this, Disconnect only severed the current
+// session and the retry loop reconnected a second later, re-announcing every
+// exposed device — a safety control that quietly undid itself.
+func TestKillSwitchStaysOff(t *testing.T) {
+	store, _ := auth.Open(t.TempDir())
+	hub := relay.NewHub(store)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.HandleWS)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tok, _, _ := store.MintPairingToken()
+	agentID, cred, err := store.ExchangePairing(tok, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cfg, _ := config.Load(dir)
+	ports := []serialdev.PortInfo{{Path: "/dev/ttyFAKE7", IsUSB: true, VID: "0403", PID: "6001", SerialNumber: "SN7"}}
+	core := agent.New(dir, cfg,
+		func() ([]serialdev.PortInfo, error) { return ports, nil },
+		func(string, proto.OpenParams) (serialdev.Port, error) { return newFakePort(), nil })
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SetExposed(core.UIDevices()[0].UUID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	tun := &agent.Tunnel{Core: core, URL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws",
+		AgentID: agentID, Credential: cred, InsecureDev: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tun.Run(ctx)
+	waitFor(t, "connected", func() bool { s, _ := tun.Status(); return s == "connected" })
+	waitFor(t, "announced", func() bool { return len(hub.Devices(nil)) == 1 })
+
+	tun.Disconnect()
+	waitFor(t, "tunnel reports stopped", func() bool { s, _ := tun.Status(); return s == "stopped" })
+	waitFor(t, "devices withdrawn", func() bool { return len(hub.Devices(nil)) == 0 })
+
+	// The old bug: backoff starts at 1s, so anything under a few seconds would
+	// have silently reconnected by now.
+	time.Sleep(3 * time.Second)
+	if s, _ := tun.Status(); s != "stopped" {
+		t.Fatalf("kill switch did not latch: state = %q", s)
+	}
+	if n := len(hub.Devices(nil)); n != 0 {
+		t.Fatalf("devices re-announced while stopped: %d", n)
+	}
+
+	tun.Resume()
+	waitFor(t, "reconnected after resume", func() bool { s, _ := tun.Status(); return s == "connected" })
+	waitFor(t, "re-announced after resume", func() bool { return len(hub.Devices(nil)) == 1 })
 }

@@ -14,10 +14,12 @@ import (
 type fakeTunnel struct {
 	started      bool
 	disconnected bool
+	resumed      bool
 }
 
 func (f *fakeTunnel) Start(id agent.RelayIdentity, insecureDev bool) { f.started = true }
 func (f *fakeTunnel) Disconnect()                                    { f.disconnected = true }
+func (f *fakeTunnel) Resume()                                        { f.resumed = true }
 func (f *fakeTunnel) Status() (string, string)                       { return "disconnected", "" }
 
 func newTestServer(t *testing.T) (*Server, *fakeTunnel) {

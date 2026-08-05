@@ -48,10 +48,21 @@ func runServe(parent context.Context, args []string) error {
 		return errors.New("refusing to start without TLS: pass --tls-cert/--tls-key, or --insecure-dev for local development only")
 	}
 	if !useTLS {
+		// The docs say plaintext on a non-loopback address is never acceptable,
+		// so enforce it rather than warn: without TLS, a reachable address puts
+		// agent credentials and device traffic on the wire in clear. Loopback
+		// is fine because the SSH carrier (or a local TLS-terminating proxy)
+		// supplies the encryption.
+		if !loopbackListen(*listen) {
+			return fmt.Errorf("refusing to serve plaintext on %q: --insecure-dev is only permitted "+
+				"on a loopback address (127.0.0.1 or ::1), where SSH or a local proxy provides the "+
+				"encryption.\nEither bind loopback, e.g. --listen 127.0.0.1%s, or serve TLS with "+
+				"--tls-cert/--tls-key", *listen, portOf(*listen))
+		}
 		log.Println("**************************************************************")
-		log.Println("* WARNING: --insecure-dev is set. Serving PLAIN HTTP.        *")
-		log.Println("* Agent credentials and device traffic cross the network     *")
-		log.Println("* UNENCRYPTED. Never use this outside local development.     *")
+		log.Println("* --insecure-dev: serving PLAIN HTTP on loopback only.       *")
+		log.Println("* Encryption must come from the SSH carrier or a local       *")
+		log.Println("* TLS-terminating proxy. Never expose this port directly.    *")
 		log.Println("**************************************************************")
 	}
 

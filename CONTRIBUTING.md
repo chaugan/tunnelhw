@@ -14,7 +14,7 @@ deliberately rejected.
 
 Go ≥ 1.25.1 (see `go.mod`). No Node toolchain, no code generation, no `make` —
 the web UI is vanilla JS embedded with `go:embed`. If Go is not on your `PATH`
-(on the primary dev machine it lives in `/opt/code/tools/go/bin`), export it
+(on the primary dev machine it lives in `your Go installation`), export it
 first:
 
 ```bash

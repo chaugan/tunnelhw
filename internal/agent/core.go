@@ -414,8 +414,30 @@ func (c *Core) OpenSession(deviceID string, params proto.OpenParams) (*Session, 
 		c.changed()
 		return nil, &proto.OpenResponse{OK: false, Reason: err.Error()}
 	}
+
 	s := &Session{ID: sid, DeviceUUID: devUUID, DeviceID: deviceID, Port: port, Opened: time.Now()}
 	c.mu.Lock()
+	// Opening the hardware is slow and happens unlocked, so the operator may
+	// have hidden the device or released the claim in the meantime. Registering
+	// the session regardless would resurrect access that was just revoked.
+	stillOurs := c.claims[devUUID] == sid
+	exposed := false
+	for _, ds := range c.devices {
+		if ds.Rec.UUID == devUUID {
+			exposed = ds.Rec.Exposed
+			break
+		}
+	}
+	if !stillOurs || !exposed {
+		if stillOurs {
+			delete(c.claims, devUUID)
+		}
+		c.mu.Unlock()
+		port.Close()
+		c.activity.Add("close", fmt.Sprintf("open of %s abandoned — access was revoked while the port was opening", deviceID))
+		c.changed()
+		return nil, &proto.OpenResponse{OK: false, Reason: "unknown device " + deviceID}
+	}
 	c.sessions[sid] = s
 	c.mu.Unlock()
 	c.activity.Add("open", fmt.Sprintf("session %s opened %s at %d baud", short(sid), deviceID, params.Baud))

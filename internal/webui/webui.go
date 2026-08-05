@@ -38,8 +38,10 @@ type TunnelController interface {
 	// Start (re)starts the tunnel with fresh settings, replacing any
 	// running one.
 	Start(id agent.RelayIdentity, insecureDev bool)
-	// Disconnect severs the current tunnel session (kill switch).
+	// Disconnect latches the tunnel off (kill switch).
 	Disconnect()
+	// Resume clears the kill switch and reconnects.
+	Resume()
 	// Status reports the tunnel state and last error for the UI.
 	Status() (state, lastErr string)
 }
@@ -122,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/sessions", s.sessions)
 	m.HandleFunc("POST /api/pair", s.pair)
 	m.HandleFunc("POST /api/disconnect", s.disconnect)
+	m.HandleFunc("POST /api/reconnect", s.reconnect)
 	return s.secure(m)
 }
 
@@ -412,9 +415,17 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 // bound to loopback on the SSH host itself, reached through the SSH channel.
 const DefaultSSHRelayURL = "ws://127.0.0.1:8443/ws"
 
+// reconnect clears the kill switch.
+func (s *Server) reconnect(w http.ResponseWriter, r *http.Request) {
+	s.core.Activity().Add("tunnel", "kill switch cleared — reconnecting")
+	s.tc.Resume()
+	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // disconnect is the kill switch: sever the tunnel and every device session.
+// It stays severed until reconnect is called.
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
-	s.core.Activity().Add("tunnel", "kill switch: severing relay link and all sessions")
+	s.core.Activity().Add("tunnel", "kill switch: tunnel stopped and all sessions closed — stays offline until you reconnect")
 	s.tc.Disconnect()
 	s.core.CloseAll("kill switch")
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})

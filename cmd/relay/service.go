@@ -125,3 +125,12 @@ func splitHostPortLoose(addr string) (host, port string, err error) {
 	}
 	return addr, "", nil
 }
+
+// portOf returns the ":port" suffix of a listen address, for use in messages
+// that suggest a corrected address.
+func portOf(addr string) string {
+	if _, port, err := splitHostPortLoose(addr); err == nil && port != "" {
+		return ":" + port
+	}
+	return ":8443"
+}

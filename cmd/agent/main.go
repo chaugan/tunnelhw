@@ -28,7 +28,15 @@ const rescanInterval = 3 * time.Second
 
 const serviceName = "tunnelhw-agent"
 
+// version is set at build time with -X main.version=<tag>.
+var version = "dev"
+
 func main() {
+	agent.Version = version
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		fmt.Printf("tunnelhw-agent %s\n", version)
+		return
+	}
 	// "service <action>" manages the background service; anything else runs
 	// the agent, in the foreground or under a service manager.
 	if len(os.Args) > 2 && os.Args[1] == "service" {
@@ -59,7 +67,7 @@ func usage() {
 Usage:
   %s [flags]                     run in the foreground
   %s service install [flags]     install as a background service
-  %s service start|stop|restart|uninstall|status
+  %s service install|start|stop|restart|uninstall|status
 
 Flags:
 `, serviceName, serviceName, serviceName)
@@ -227,6 +235,16 @@ func (m *tunnelManager) Disconnect() {
 	m.mu.Unlock()
 	if t != nil {
 		t.Disconnect()
+	}
+}
+
+// Resume clears the kill switch on the current tunnel.
+func (m *tunnelManager) Resume() {
+	m.mu.Lock()
+	t := m.tun
+	m.mu.Unlock()
+	if t != nil {
+		t.Resume()
 	}
 }
 

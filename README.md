@@ -39,20 +39,25 @@ no public address anywhere.
 
 ### 1. Relay — on the machine that runs the LLM
 
-```bash
-# Loopback only: not reachable from the network. SSH provides the encryption,
-# so no TLS certificates are needed here.
-./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
+`serve` runs in the foreground, so use two terminals (or install it as a
+service — see [Running as a service](#running-as-a-service)).
 
+```bash
+# Terminal 1 — loopback only, so not reachable from the network. SSH provides
+# the encryption, and the relay refuses plaintext on any other address.
+./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
+```
+
+```bash
+# Terminal 2 — mint the two secrets you need
 ./tunnelhw-relay-linux-amd64 pair-token                  # single use, 5 min
 ./tunnelhw-relay-linux-amd64 api-token --name llm-host   # bearer token for the LLM
 ```
 
-> **`--insecure-dev` turns TLS off.** That is correct *only* on loopback
-> reached through SSH, as above. Never combine it with `--listen 0.0.0.0` or a
-> public address — agent credentials and device traffic would cross the network
-> in clear. For a directly reachable relay use `--tls-cert` and `--tls-key`
-> instead. See [SECURITY.md](SECURITY.md).
+> **`--insecure-dev` turns TLS off.** It is permitted *only* on a loopback
+> address, where SSH or a local proxy supplies the encryption — the relay
+> refuses to start with it on any other address. For a directly reachable
+> relay use `--tls-cert` and `--tls-key`. See [SECURITY.md](SECURITY.md).
 
 ### 2. Agent — on the machine with the hardware
 
@@ -150,15 +155,18 @@ behaviour.
   holds nothing, so your own terminal or IDE can use the device normally.
 - **You can take a device back at any time.** **Release** in the web UI
   force-closes the session holding one device, leaving the tunnel and every
-  other device untouched. Hiding a device also ends its session.
+  other device untouched. Hiding a device also ends its session. The **kill
+  switch** stops everything and latches off until you press Reconnect.
 - **Reads never block indefinitely** and may return partial data.
 - **Sessions do not survive a reconnect.** Session IDs become invalid and
   nothing is replayed; the model re-opens.
 - **Control lines are a separate grant.** `set_params` is refused unless you
   enable **Control lines** for that device, because DTR/RTS can reset a board
   or drop it into its bootloader.
-- **Read-only tokens** (`api-token --read-only`) allow only `list_devices` and
-  `read`.
+- **Read-only tokens** (`api-token --read-only`) cannot open a session, and
+  sessions are visible only to the token that opened them — so read-only is in
+  practice *list-only*, good for inventory rather than watching live traffic.
+  `api-token --agents <id,…>` restricts a token to named agents.
 
 ### Without MCP
 

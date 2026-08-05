@@ -27,10 +27,15 @@ import (
 	"time"
 
 	"github.com/chaugan/tunnelhw/internal/auth"
+	"github.com/chaugan/tunnelhw/internal/mcp"
 	"github.com/chaugan/tunnelhw/internal/svc"
 )
 
+// version is set at build time with -X main.version=<tag>.
+var version = "dev"
+
 func main() {
+	mcp.Version = version
 	args := os.Args[1:]
 	cmd := "serve"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -57,6 +62,8 @@ func main() {
 			break
 		}
 		err = runServiceCmd(args[0], args[1:])
+	case "version":
+		fmt.Printf("tunnelhw-relay %s\n", version)
 	case "help":
 		usage(os.Stdout)
 	default:
@@ -80,6 +87,7 @@ Commands:
   agents                    List paired agents.
   revoke-agent <agent-id>   Revoke an agent's credential.
   service <action>          install | uninstall | start | stop | restart | status
+  version                   Print the build version.
   help                      Show this help.
 
 Run "tunnelhw-relay <command> -h" for command flags.

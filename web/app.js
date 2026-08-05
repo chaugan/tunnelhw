@@ -43,6 +43,16 @@ async function refreshStatus() {
       banner.textContent = "Not paired with a relay — enter a pairing token below.";
       return;
     }
+    const kill = document.getElementById("killswitch");
+    if (kill) {
+      const stopped = s.tunnel_state === "stopped";
+      tunnelStopped = stopped;
+      kill.textContent = stopped ? "Reconnect" : "Kill switch";
+      kill.className = stopped ? "primary" : "danger";
+      kill.title = stopped
+        ? "Clear the kill switch and reconnect to the relay"
+        : "Close every session and take the tunnel offline until you reconnect";
+    }
     switch (s.tunnel_state) {
       case "connected":
         banner.className = "banner banner-on";
@@ -52,6 +62,10 @@ async function refreshStatus() {
       case "connecting":
         banner.className = "banner banner-mid";
         banner.textContent = "Connecting to " + s.relay_url + "…";
+        break;
+      case "stopped":
+        banner.className = "banner banner-err";
+        banner.textContent = "Stopped by the kill switch — offline until you reconnect.";
         break;
       default:
         banner.className = "banner banner-err";
@@ -266,10 +280,19 @@ async function refreshActivity() {
 
 // ---- kill switch ---------------------------------------------------------
 
+// The kill switch latches: it stays offline until explicitly reconnected, so
+// the same button doubles as Reconnect once stopped.
+let tunnelStopped = false;
+
 document.getElementById("killswitch").addEventListener("click", async () => {
-  if (!confirm("Close every device session and sever the relay link?")) return;
-  try { await api("/api/disconnect", {}); }
-  catch (e) { alert("Kill switch failed: " + e.message); }
+  if (tunnelStopped) {
+    try { await api("/api/reconnect", {}); }
+    catch (e) { alert("Reconnect failed: " + e.message); }
+  } else {
+    if (!confirm("Close every device session and take the tunnel offline?\n\nIt stays offline until you press Reconnect.")) return;
+    try { await api("/api/disconnect", {}); }
+    catch (e) { alert("Kill switch failed: " + e.message); }
+  }
   refreshStatus();
   refreshSessions();
 });

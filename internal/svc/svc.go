@@ -92,10 +92,25 @@ type program struct {
 	err    error
 }
 
-func (p *program) Start(service.Service) error {
+func (p *program) Start(s service.Service) error {
 	go func() {
 		defer close(p.done)
 		p.err = p.run(p.ctx)
+		if p.err != nil && p.ctx.Err() == nil {
+			// The work failed on its own rather than being asked to stop.
+			// Nothing will call Stop, and the service runner blocks until it
+			// is signalled — so without this a startup error (bad flags, port
+			// in use) would hang in the foreground and, under a service
+			// manager, look like a healthy process doing nothing.
+			// The service logger writes to stderr when interactive and to the
+			// system log under a service manager, so one call covers both.
+			if logger, lerr := s.Logger(nil); lerr == nil {
+				logger.Error(p.err.Error())
+			} else {
+				fmt.Fprintln(os.Stderr, p.err)
+			}
+			os.Exit(1)
+		}
 	}()
 	return nil
 }

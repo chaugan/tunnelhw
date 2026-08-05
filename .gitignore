@@ -27,3 +27,7 @@ config.local.*
 vectors/
 dist/
 *.syso
+
+# Bare `go build ./cmd/...` drops binaries here
+/agent
+/relay
