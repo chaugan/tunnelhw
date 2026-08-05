@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -84,12 +85,14 @@ func TestResolveScopeFindsSystemService(t *testing.T) {
 	}
 
 	// Explicit --system is always honoured.
-	if got, switched := resolveScope(Spec{Name: "x", System: true}); !got.System || switched {
-		t.Errorf("explicit --system: got System=%v switched=%v", got.System, switched)
+	if got, note := resolveScope(Spec{Name: "x", System: true}); !got.System || note != "" {
+		t.Errorf("explicit --system: got System=%v note=%q", got.System, note)
 	}
 	// With neither installed, stay user-scoped.
-	if got, switched := resolveScope(Spec{Name: "tunnelhw-definitely-not-installed"}); got.System || switched {
-		t.Errorf("nothing installed: got System=%v switched=%v", got.System, switched)
+	if os.Getenv("SUDO_USER") == "" {
+		if got, note := resolveScope(Spec{Name: "tunnelhw-definitely-not-installed"}); got.System || note != "" {
+			t.Errorf("nothing installed: got System=%v note=%q", got.System, note)
+		}
 	}
 }
 
@@ -107,5 +110,25 @@ func TestUnitPathsAreScopeDistinct(t *testing.T) {
 		if system != "/Library/LaunchDaemons/tunnelhw-relay.plist" {
 			t.Errorf("system plist path = %q", system)
 		}
+	}
+}
+
+// Reaching for sudo means "system"; a systemd --user service owned by root
+// does not run and is never what the operator wanted.
+func TestSudoImpliesSystemScope(t *testing.T) {
+	if !SupportsUserServices() {
+		t.Skip("no user services on this platform")
+	}
+	t.Setenv("SUDO_USER", "chrzz")
+	got, note := resolveScope(Spec{Name: "tunnelhw-relay"})
+	if !got.System {
+		t.Fatal("under sudo the scope must resolve to system")
+	}
+	if note == "" {
+		t.Error("the scope change must be explained, not silent")
+	}
+	// An explicit flag still wins outright.
+	if got, _ := resolveScope(Spec{Name: "x", System: true}); !got.System {
+		t.Error("explicit --system must remain system")
 	}
 }

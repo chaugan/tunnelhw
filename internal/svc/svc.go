@@ -154,20 +154,27 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// resolveScope finds the scope an action should act on. Requiring --system on
-// every subsequent command is a trap: forget it once and the tool reports
-// "not installed" while the service sits there installed. So when only a
-// system-scoped service exists, operate on that.
-func resolveScope(spec Spec) (Spec, bool) {
+// resolveScope finds the scope an action should act on, and explains any
+// change it makes. Requiring --system on every subsequent command is a trap:
+// forget it once and the tool reports "not installed" while the service sits
+// there installed.
+func resolveScope(spec Spec) (Spec, string) {
 	if spec.System || !SupportsUserServices() {
-		return spec, false
+		return spec, ""
+	}
+	// Under sudo the "user" is root, so per-user scope would mean a systemd
+	// --user service owned by root — something nobody wants and which does not
+	// run without a root login session. Reaching for sudo says "system".
+	if os.Getenv("SUDO_USER") != "" {
+		spec.System = true
+		return spec, "running under sudo, so acting system-wide (pass --system explicitly to silence this)"
 	}
 	user, system := unitPaths(spec.Name)
 	if exists(system) && !exists(user) {
 		spec.System = true
-		return spec, true
+		return spec, "acting on the system-scoped service"
 	}
-	return spec, false
+	return spec, ""
 }
 
 // Control performs an install/uninstall/start/stop/restart/status action.
@@ -176,27 +183,25 @@ func resolveScope(spec Spec) (Spec, bool) {
 // unlikely to have; rather than fail with "Access is denied" it re-launches
 // itself through UAC and reports what the elevated copy did.
 func Control(spec Spec, action string) error {
+	spec, note := resolveScope(spec)
+	if note != "" {
+		fmt.Printf("(%s)\n", note)
+	}
 	if action == "install" {
 		// Installing the opposite scope over an existing one fails deep in the
 		// service manager with "Init already exists"; say what to do instead.
 		user, system := unitPaths(spec.Name)
 		if other := map[bool]string{true: user, false: system}[spec.System]; exists(other) {
 			return fmt.Errorf("%s is already installed with the other scope (%s)\n"+
-				"Remove it first:  %s service uninstall%s",
-				spec.Name, other, exeName(), scopeFlag(!spec.System))
+				"Remove that one first:  %s%s service uninstall%s",
+				spec.Name, other, sudoPrefix(!spec.System), exeName(), scopeFlag(!spec.System))
 		}
-	} else {
-		if user, system := unitPaths(spec.Name); !spec.System && exists(user) && exists(system) {
-			// Both scopes installed: acting on one silently would look like
-			// the command did nothing to the other.
-			fmt.Printf("warning: %s is installed twice — per-user (%s) and system-wide (%s).\n"+
-				"         Acting on the per-user one; add --system for the other.\n",
-				spec.Name, user, system)
-		}
-		var switched bool
-		if spec, switched = resolveScope(spec); switched {
-			fmt.Printf("(acting on the system-scoped %s)\n", spec.Name)
-		}
+	} else if user, system := unitPaths(spec.Name); exists(user) && exists(system) {
+		// Both scopes installed: acting on one silently would look like the
+		// command did nothing to the other.
+		fmt.Printf("warning: %s is installed twice — per-user (%s) and system-wide (%s).\n"+
+			"         Acting on the %s one.\n",
+			spec.Name, user, system, scopeWord(spec))
 	}
 	if elevationSupported() && needsElevation(action) && !isElevated() {
 		fmt.Printf("%s needs Administrator rights — requesting elevation…\n", action)
@@ -281,6 +286,14 @@ func exeName() string {
 		return exe
 	}
 	return "tunnelhw"
+}
+
+// sudoPrefix suggests sudo when the suggested command needs system privileges.
+func sudoPrefix(system bool) string {
+	if system && runtime.GOOS != "windows" {
+		return "sudo "
+	}
+	return ""
 }
 
 func scopeFlag(system bool) string {
