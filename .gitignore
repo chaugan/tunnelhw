@@ -1,0 +1,27 @@
+# Binaries / build output
+/bin/
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Node (web UI tooling, if added)
+node_modules/
+
+# Local config & secrets — never commit
+*.env
+.env*
+config.local.*
+*.pem
+*.key
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# memstack local index data (not project code)
+vectors/
