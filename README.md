@@ -1,5 +1,6 @@
 # TunnelHW
 
+[![CI](https://github.com/chaugan/tunnelhw/actions/workflows/ci.yml/badge.svg)](https://github.com/chaugan/tunnelhw/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/chaugan/tunnelhw)](https://github.com/chaugan/tunnelhw/releases)
 
