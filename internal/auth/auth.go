@@ -58,10 +58,18 @@ type state struct {
 }
 
 // Store is the persistent credential store.
+//
+// The file is shared between a long-running relay and the short-lived admin
+// commands that mint and revoke credentials, so every operation re-reads it
+// when it has changed on disk. Without that, a token minted by the CLI is
+// invisible to the running relay until restart, and the next write from
+// either process silently discards the other's changes.
 type Store struct {
-	mu   sync.Mutex
-	path string
-	st   state
+	mu      sync.Mutex
+	path    string
+	st      state
+	modTime time.Time
+	size    int64
 }
 
 // Open loads (or initializes) the store at dir/auth.json.
@@ -83,7 +91,40 @@ func Open(dir string) (*Store, error) {
 	if s.st.Agents == nil {
 		s.st.Agents = map[string]AgentRecord{}
 	}
+	s.stampLocked()
 	return s, nil
+}
+
+// stampLocked records the file's identity so reloadLocked can detect
+// out-of-process writes.
+func (s *Store) stampLocked() {
+	if fi, err := os.Stat(s.path); err == nil {
+		s.modTime, s.size = fi.ModTime(), fi.Size()
+	}
+}
+
+// reloadLocked re-reads the file if another process has written it.
+func (s *Store) reloadLocked() {
+	fi, err := os.Stat(s.path)
+	if err != nil {
+		return // absent: nothing on disk to be newer than memory
+	}
+	if fi.ModTime().Equal(s.modTime) && fi.Size() == s.size {
+		return
+	}
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	var fresh state
+	if err := json.Unmarshal(raw, &fresh); err != nil {
+		return // keep the good in-memory copy rather than trust a torn read
+	}
+	if fresh.Agents == nil {
+		fresh.Agents = map[string]AgentRecord{}
+	}
+	s.st = fresh
+	s.modTime, s.size = fi.ModTime(), fi.Size()
 }
 
 func (s *Store) saveLocked() error {
@@ -95,7 +136,11 @@ func (s *Store) saveLocked() error {
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	s.stampLocked()
+	return nil
 }
 
 func newSecret() (string, error) {
@@ -125,6 +170,7 @@ func (s *Store) MintPairingToken() (string, time.Time, error) {
 	exp := time.Now().Add(PairingTokenTTL)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	// Prune expired/used while we're here.
 	kept := s.st.PairingTokens[:0]
 	for _, p := range s.st.PairingTokens {
@@ -144,6 +190,7 @@ var ErrBadPairing = errors.New("invalid or expired pairing token")
 func (s *Store) ExchangePairing(token, name string) (agentID, credential string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	for i := range s.st.PairingTokens {
 		p := &s.st.PairingTokens[i]
 		if p.Used || time.Now().After(p.ExpiresAt) || !hashEqual(p.Hash, token) {
@@ -164,6 +211,7 @@ func (s *Store) ExchangePairing(token, name string) (agentID, credential string,
 // VerifyAgent checks an agent credential.
 func (s *Store) VerifyAgent(agentID, credential string) bool {
 	s.mu.Lock()
+	s.reloadLocked()
 	rec, ok := s.st.Agents[agentID]
 	s.mu.Unlock()
 	return ok && !rec.Revoked && hashEqual(rec.CredentialHash, credential)
@@ -173,6 +221,7 @@ func (s *Store) VerifyAgent(agentID, credential string) bool {
 func (s *Store) RevokeAgent(agentID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	rec, ok := s.st.Agents[agentID]
 	if !ok {
 		return fmt.Errorf("auth: unknown agent %s", agentID)
@@ -186,6 +235,7 @@ func (s *Store) RevokeAgent(agentID string) error {
 func (s *Store) Agents() map[string]AgentRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	out := make(map[string]AgentRecord, len(s.st.Agents))
 	for k, v := range s.st.Agents {
 		out[k] = v
@@ -201,6 +251,7 @@ func (s *Store) MintAPIToken(name string, readOnly bool, agents []string) (strin
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	s.st.APITokens = append(s.st.APITokens, APIToken{
 		Hash: hashOf(tok), Name: name, ReadOnly: readOnly, Agents: agents, MintedAt: time.Now(),
 	})
@@ -211,6 +262,7 @@ func (s *Store) MintAPIToken(name string, readOnly bool, agents []string) (strin
 func (s *Store) VerifyAPIToken(token string) (*APIToken, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	for i := range s.st.APITokens {
 		t := &s.st.APITokens[i]
 		if !t.Revoked && hashEqual(t.Hash, token) {

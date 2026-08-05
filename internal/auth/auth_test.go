@@ -66,3 +66,51 @@ func TestAPITokens(t *testing.T) {
 		t.Fatal("bad token must not verify")
 	}
 }
+
+// A running relay and an admin CLI are two processes over one file. Tokens
+// minted by one must be honored by the other, and neither may clobber the
+// other's writes.
+func TestCrossProcessVisibility(t *testing.T) {
+	dir := t.TempDir()
+	relay, err := Open(dir) // long-running
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := Open(dir) // short-lived admin command
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apiTok, err := cli.MintAPIToken("llm-host", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := relay.VerifyAPIToken(apiTok); !ok {
+		t.Fatal("relay must honor a token minted by the admin CLI without a restart")
+	}
+
+	// The relay pairs an agent (writing the file), then the CLI mints again.
+	pairTok, _, err := cli.MintPairingToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID, cred, err := relay.ExchangePairing(pairTok, "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cli.MintAPIToken("second", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Neither write may have discarded the other.
+	if !relay.VerifyAgent(agentID, cred) {
+		t.Fatal("agent pairing lost after a later CLI write")
+	}
+	if _, ok := relay.VerifyAPIToken(second); !ok {
+		t.Fatal("second CLI token not visible to the relay")
+	}
+	if _, ok := relay.VerifyAPIToken(apiTok); !ok {
+		t.Fatal("first CLI token lost")
+	}
+}
