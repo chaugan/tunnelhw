@@ -40,7 +40,7 @@ async function refreshStatus() {
     const s = await api("/api/status");
     if (!s.paired) {
       banner.className = "banner banner-off";
-      banner.textContent = "Not paired with a relay — enter a pairing token below.";
+      banner.textContent = "Not paired with a relay. Enter a pairing token below.";
       return;
     }
     const kill = document.getElementById("killswitch");
@@ -65,12 +65,12 @@ async function refreshStatus() {
         break;
       case "stopped":
         banner.className = "banner banner-err";
-        banner.textContent = "Stopped by the kill switch — offline until you reconnect.";
+        banner.textContent = "Stopped by the kill switch. Offline until you reconnect.";
         break;
       default:
         banner.className = "banner banner-err";
         banner.textContent = "Disconnected from " + s.relay_url +
-          (s.tunnel_error ? " — " + s.tunnel_error : "");
+          (s.tunnel_error ? ": " + s.tunnel_error : "");
     }
   } catch (e) {
     banner.className = "banner banner-err";
@@ -133,12 +133,12 @@ async function doPair(acceptHostKey) {
     document.getElementById("ssh-pass").value = "";
     hostkey.classList.add("hidden");
     msg.className = "small msg-ok";
-    msg.textContent = "Paired — connecting to relay.";
+    msg.textContent = "Paired. Connecting to relay.";
   } catch (e) {
     if (e.data && e.data.needs_host_key_approval) {
       // Not a failure: the human has to vouch for the server's identity.
       document.getElementById("hostkey-fp").textContent =
-        e.data.host + " — " + e.data.fingerprint;
+        e.data.host + ": " + e.data.fingerprint;
       hostkey.classList.remove("hidden");
       msg.className = "small dim";
       msg.textContent = "Verify the SSH host key below to continue.";
@@ -181,8 +181,8 @@ async function regenerate(uuid) {
 function deviceRow(d) {
   const tr = el("tr");
   tr.appendChild(el("td", "wordid", d.id));
-  tr.appendChild(el("td", "path", d.meta.path || "—"));
-  tr.appendChild(el("td", "", d.meta.transport || "—"));
+  tr.appendChild(el("td", "path", d.meta.path || "n/a"));
+  tr.appendChild(el("td", "", d.meta.transport || "n/a"));
 
   const conf = d.meta.fingerprint_confidence || "weak";
   const badge = el("span", "badge badge-" + conf, conf);
@@ -193,7 +193,7 @@ function deviceRow(d) {
   tdConf.appendChild(badge);
   tr.appendChild(tdConf);
 
-  tr.appendChild(el("td", "", d.meta.product || "—"));
+  tr.appendChild(el("td", "", d.meta.product || "n/a"));
 
   const state = !d.online ? ["offline", "state-offline"]
     : d.busy ? ["busy", "state-busy"] : ["online", "state-online"];
@@ -211,7 +211,7 @@ function deviceRow(d) {
   };
   tr.appendChild(mkToggle(d.exposed, "exposed", "Expose this device to the relay"));
   tr.appendChild(mkToggle(d.meta.control_lines_allowed, "allow_control_lines",
-    "Allow DTR/RTS and baud changes — these can reset boards or enter bootloaders"));
+    "Allow DTR/RTS and baud changes, which can reset boards or enter bootloaders"));
 
   const tdBtn = el("td", "actions");
   if (d.busy) {
@@ -248,8 +248,8 @@ async function refreshSessions() {
     const ul = document.getElementById("sessions");
     ul.replaceChildren(...sessions.map((s) => {
       const li = el("li", "mono");
-      li.textContent = s.device_id + " — session " + s.session_id.slice(0, 8) +
-        " — " + s.bytes_in + " B in / " + s.bytes_out + " B out — opened " +
+      li.textContent = s.device_id + ": session " + s.session_id.slice(0, 8) +
+        ", " + s.bytes_in + " B in / " + s.bytes_out + " B out, opened " +
         new Date(s.opened).toLocaleTimeString();
       return li;
     }));
