@@ -263,6 +263,13 @@ func (c *Conn) Recv() (Envelope, error) {
 	return env, nil
 }
 
+// ReadInto reads one JSON header frame from the connection into v.
+func (c *Conn) ReadInto(v any) error { return ReadHeaderFrame(c.br, v) }
+
+// Read reads raw bytes, serving anything already buffered past a header
+// frame first. Used when a stream switches from header exchange to raw data.
+func (c *Conn) Read(p []byte) (int, error) { return c.br.Read(p) }
+
 // Decode unmarshals an envelope payload into v.
 func Decode[T any](env Envelope) (T, error) {
 	var v T
