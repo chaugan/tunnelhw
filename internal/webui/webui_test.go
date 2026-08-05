@@ -16,9 +16,9 @@ type fakeTunnel struct {
 	disconnected bool
 }
 
-func (f *fakeTunnel) Start(relayURL, agentID, credential string, insecureDev bool) { f.started = true }
-func (f *fakeTunnel) Disconnect()                                                 { f.disconnected = true }
-func (f *fakeTunnel) Status() (string, string)                                    { return "disconnected", "" }
+func (f *fakeTunnel) Start(id agent.RelayIdentity, insecureDev bool) { f.started = true }
+func (f *fakeTunnel) Disconnect()                                    { f.disconnected = true }
+func (f *fakeTunnel) Status() (string, string)                       { return "disconnected", "" }
 
 func newTestServer(t *testing.T) (*Server, *fakeTunnel) {
 	t.Helper()

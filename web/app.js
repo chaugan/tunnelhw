@@ -16,7 +16,12 @@ async function api(path, body) {
   const text = await res.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
-  if (!res.ok) throw new Error(data.error || res.status + " " + res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.status + " " + res.statusText);
+    err.status = res.status;
+    err.data = data;   // callers may need the body (e.g. host-key approval)
+    throw err;
+  }
   return data;
 }
 
@@ -41,7 +46,8 @@ async function refreshStatus() {
     switch (s.tunnel_state) {
       case "connected":
         banner.className = "banner banner-on";
-        banner.textContent = "Connected to " + s.relay_url;
+        banner.textContent = "Connected to " + s.relay_url +
+          (s.ssh_host ? " via SSH " + s.ssh_user + "@" + s.ssh_host : "");
         break;
       case "connecting":
         banner.className = "banner banner-mid";
@@ -58,29 +64,87 @@ async function refreshStatus() {
   }
 }
 
-document.getElementById("pair-form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
+function pairMode() {
+  const checked = document.querySelector('input[name="mode"]:checked');
+  return checked ? checked.value : "direct";
+}
+
+for (const radio of document.querySelectorAll('input[name="mode"]')) {
+  radio.addEventListener("change", () => {
+    const ssh = pairMode() === "ssh";
+    document.getElementById("mode-ssh").classList.toggle("hidden", !ssh);
+    document.getElementById("mode-direct").classList.toggle("hidden", ssh);
+  });
+}
+
+// Builds the /api/pair body from the form. acceptHostKey is set only after
+// the human has seen and approved the SSH fingerprint.
+function pairBody(acceptHostKey) {
+  const val = (id) => document.getElementById(id).value.trim();
+  const body = {
+    token: val("pair-token"),
+    name: val("pair-name"),
+  };
+  if (pairMode() === "ssh") {
+    body.relay_url = val("pair-url-ssh");
+    body.ssh = {
+      host: val("ssh-host"),
+      user: val("ssh-user"),
+      key_path: val("ssh-key"),
+      accept_new_host_key: !!acceptHostKey,
+    };
+    const secret = val("ssh-pass");
+    // One field, two uses: a key file means it decrypts the key, otherwise
+    // it is the login password.
+    if (secret) {
+      if (body.ssh.key_path) body.ssh.key_passphrase = secret;
+      else body.ssh.password = secret;
+    }
+  } else {
+    body.relay_url = val("pair-url");
+  }
+  return body;
+}
+
+async function doPair(acceptHostKey) {
   const msg = document.getElementById("pair-msg");
   const btn = document.getElementById("pair-btn");
+  const hostkey = document.getElementById("hostkey");
   btn.disabled = true;
   msg.className = "small dim";
   msg.textContent = "Pairing…";
   try {
-    await api("/api/pair", {
-      relay_url: document.getElementById("pair-url").value.trim(),
-      token: document.getElementById("pair-token").value.trim(),
-      name: document.getElementById("pair-name").value.trim(),
-    });
+    await api("/api/pair", pairBody(acceptHostKey));
     document.getElementById("pair-token").value = "";
+    document.getElementById("ssh-pass").value = "";
+    hostkey.classList.add("hidden");
     msg.className = "small msg-ok";
     msg.textContent = "Paired — connecting to relay.";
   } catch (e) {
-    msg.className = "small msg-err";
-    msg.textContent = "Pairing failed: " + e.message;
+    if (e.data && e.data.needs_host_key_approval) {
+      // Not a failure: the human has to vouch for the server's identity.
+      document.getElementById("hostkey-fp").textContent =
+        e.data.host + " — " + e.data.fingerprint;
+      hostkey.classList.remove("hidden");
+      msg.className = "small dim";
+      msg.textContent = "Verify the SSH host key below to continue.";
+    } else {
+      msg.className = "small msg-err";
+      msg.textContent = "Pairing failed: " + e.message;
+    }
   } finally {
     btn.disabled = false;
     refreshStatus();
   }
+}
+
+document.getElementById("pair-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  doPair(false);
+});
+document.getElementById("hostkey-accept").addEventListener("click", () => doPair(true));
+document.getElementById("hostkey-cancel").addEventListener("click", () => {
+  document.getElementById("hostkey").classList.add("hidden");
 });
 
 // ---- devices -------------------------------------------------------------

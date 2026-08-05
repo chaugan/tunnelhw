@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/chaugan/tunnelhw/internal/mux"
 	"github.com/chaugan/tunnelhw/internal/proto"
+	"github.com/chaugan/tunnelhw/internal/sshtun"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
@@ -33,6 +35,10 @@ type Tunnel struct {
 	AgentID     string
 	Credential  string
 	InsecureDev bool
+	// SSH, when set, carries the tunnel through an SSH server: URL is then
+	// resolved on that host, so a loopback-bound relay needs no public
+	// address. SSH supplies the encryption and server authentication.
+	SSH *sshtun.Config
 
 	state    atomic.Value // string: disconnected|connecting|connected
 	lastErr  atomic.Value // string
@@ -104,8 +110,11 @@ func (t *Tunnel) validateURL() error {
 	switch u.Scheme {
 	case "wss":
 	case "ws":
-		if !t.InsecureDev {
-			return errors.New("relay URL uses ws:// — TLS is required unless insecure_dev is set")
+		// Inside an SSH channel the traffic is already encrypted and the
+		// server authenticated by its host key, so plaintext ws:// is the
+		// correct choice there, not a downgrade.
+		if !t.usingSSH() && !t.InsecureDev {
+			return errors.New("relay URL uses ws:// — TLS is required unless the connection runs over SSH or insecure_dev is set")
 		}
 	default:
 		return fmt.Errorf("relay URL scheme %q: want wss://", u.Scheme)
@@ -119,10 +128,29 @@ func (t *Tunnel) fail(err error) {
 	t.Core.Activity().Add("error", err.Error())
 }
 
+// usingSSH reports whether the tunnel rides over an SSH connection.
+func (t *Tunnel) usingSSH() bool { return t.SSH != nil && t.SSH.Valid() }
+
 // session runs one full connect → hello → serve cycle.
 func (t *Tunnel) session(ctx context.Context) error {
 	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	ws, _, err := websocket.Dial(dialCtx, t.URL, nil)
+	defer cancel()
+
+	var opts *websocket.DialOptions
+	if t.usingSSH() {
+		sc, err := sshtun.Dial(dialCtx, *t.SSH)
+		if err != nil {
+			return err
+		}
+		// The SSH connection carries the whole session; tear it down with it.
+		defer sc.Close()
+		t.Core.Activity().Add("tunnel", "SSH connection to "+t.SSH.Addr()+" established")
+		opts = &websocket.DialOptions{HTTPClient: &http.Client{
+			Transport: &http.Transport{DialContext: sc.DialContext},
+		}}
+	}
+
+	ws, _, err := websocket.Dial(dialCtx, t.URL, opts)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)

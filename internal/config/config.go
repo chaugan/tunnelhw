@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/chaugan/tunnelhw/internal/sshtun"
 )
 
 // DeviceRecord is the durable state for one fingerprinted device.
@@ -29,6 +31,12 @@ type Config struct {
 	Credential string                  `json:"credential,omitempty"`
 	UIListen   string                  `json:"ui_listen,omitempty"`
 	Devices    map[string]DeviceRecord `json:"devices"` // key: fingerprint key
+
+	// SSH, when set, makes the agent reach the relay through an SSH server
+	// instead of over the open network. RelayURL is then resolved *on the
+	// SSH host*, so a relay bound to its loopback (ws://127.0.0.1:8443/ws)
+	// needs no public address at all.
+	SSH *sshtun.Config `json:"ssh,omitempty"`
 }
 
 // DefaultUIListen is loopback-only by design; see ARCHITECTURE.md §7.

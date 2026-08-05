@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/chaugan/tunnelhw/internal/agent"
+	"github.com/chaugan/tunnelhw/internal/sshtun"
 	"github.com/chaugan/tunnelhw/web"
 )
 
@@ -36,7 +37,7 @@ const csrfPlaceholder = "__CSRF_TOKEN__"
 type TunnelController interface {
 	// Start (re)starts the tunnel with fresh settings, replacing any
 	// running one.
-	Start(relayURL, agentID, credential string, insecureDev bool)
+	Start(id agent.RelayIdentity, insecureDev bool)
 	// Disconnect severs the current tunnel session (kill switch).
 	Disconnect()
 	// Status reports the tunnel state and last error for the UI.
@@ -178,15 +179,19 @@ func (s *Server) serveAsset(name, contentType string) http.HandlerFunc {
 // ---- JSON API ------------------------------------------------------------
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
-	relayURL, agentID, cred := s.core.RelayIdentity()
-	paired := relayURL != "" && agentID != "" && cred != ""
+	id := s.core.RelayIdentity()
 	state, lastErr := s.tc.Status()
-	jsonOut(w, http.StatusOK, map[string]any{
-		"paired":       paired,
-		"relay_url":    relayURL,
+	out := map[string]any{
+		"paired":       id.Paired(),
+		"relay_url":    id.RelayURL,
 		"tunnel_state": state,
 		"tunnel_error": lastErr,
-	})
+	}
+	if id.SSH != nil && id.SSH.Valid() {
+		out["ssh_host"] = id.SSH.Addr()
+		out["ssh_user"] = id.SSH.User
+	}
+	jsonOut(w, http.StatusOK, out)
 }
 
 func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
@@ -270,22 +275,69 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 // are never logged (ARCHITECTURE.md §7).
 func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RelayURL string `json:"relay_url"`
-		Token    string `json:"token"`
-		Name     string `json:"name"`
+		RelayURL string         `json:"relay_url"`
+		Token    string         `json:"token"`
+		Name     string         `json:"name"`
+		SSH      *sshtun.Config `json:"ssh"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad JSON body")
 		return
 	}
-	if req.RelayURL == "" || req.Token == "" {
-		jsonErr(w, http.StatusBadRequest, "relay_url and token are required")
+	if req.Token == "" {
+		jsonErr(w, http.StatusBadRequest, "token is required")
 		return
 	}
-	pairBase, tunnelURL, err := normalizeRelayURL(req.RelayURL, s.insecureDev)
+	useSSH := req.SSH != nil && req.SSH.Host != ""
+	if useSSH && !req.SSH.Valid() {
+		jsonErr(w, http.StatusBadRequest, "ssh.user is required when ssh.host is set")
+		return
+	}
+	if req.RelayURL == "" {
+		if !useSSH {
+			jsonErr(w, http.StatusBadRequest, "relay_url is required")
+			return
+		}
+		// Over SSH the relay is normally right there on the SSH host's
+		// loopback — the overwhelmingly common case, so default to it.
+		req.RelayURL = DefaultSSHRelayURL
+	}
+	// Inside an SSH channel the traffic is already encrypted and the peer
+	// authenticated by host key, so plaintext there is correct.
+	pairBase, tunnelURL, err := normalizeRelayURL(req.RelayURL, s.insecureDev || useSSH)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), pairTimeout)
+	defer cancel()
+
+	client := s.pairClient
+	if useSSH {
+		sc, err := sshtun.Dial(ctx, *req.SSH)
+		if err != nil {
+			// An unfamiliar host key is not a failure — it is a question for
+			// the human. Hand the fingerprint to the UI so it can be verified
+			// and approved, then retried with accept_new_host_key.
+			var unknown *sshtun.UnknownHostKeyError
+			if errors.As(err, &unknown) {
+				jsonOut(w, http.StatusConflict, map[string]any{
+					"error":                   unknown.Error(),
+					"needs_host_key_approval": true,
+					"host":                    unknown.Host,
+					"fingerprint":             unknown.Fingerprint,
+				})
+				return
+			}
+			jsonErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		defer sc.Close()
+		client = &http.Client{
+			Timeout:   pairTimeout,
+			Transport: &http.Transport{DialContext: sc.DialContext},
+		}
 	}
 
 	body, err := json.Marshal(map[string]string{"token": req.Token, "name": req.Name})
@@ -293,15 +345,13 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), pairTimeout)
-	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, pairBase+"/pair", bytes.NewReader(body))
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := s.pairClient.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		// The error string carries the URL, never the token (it's in the body).
 		jsonErr(w, http.StatusBadGateway, "relay unreachable: "+err.Error())
@@ -322,15 +372,35 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.core.SetRelayIdentity(tunnelURL, minted.AgentID, minted.Credential); err != nil {
+	id := agent.RelayIdentity{
+		RelayURL:   tunnelURL,
+		AgentID:    minted.AgentID,
+		Credential: minted.Credential,
+	}
+	if useSSH {
+		// The host key was accepted during this exchange; keep it approved so
+		// later reconnects do not re-prompt.
+		sshCfg := *req.SSH
+		sshCfg.AcceptNewHostKey = true
+		id.SSH = &sshCfg
+	}
+	if err := s.core.SetRelayIdentity(id); err != nil {
 		jsonErr(w, http.StatusInternalServerError, "persist pairing: "+err.Error())
 		return
 	}
 
-	s.core.Activity().Add("tunnel", "paired with relay "+pairBase)
-	s.tc.Start(tunnelURL, minted.AgentID, minted.Credential, s.insecureDev)
+	note := "paired with relay " + pairBase
+	if useSSH {
+		note += " over SSH via " + req.SSH.Addr()
+	}
+	s.core.Activity().Add("tunnel", note)
+	s.tc.Start(id, s.insecureDev)
 	jsonOut(w, http.StatusOK, map[string]any{"ok": true, "relay_url": tunnelURL})
 }
+
+// DefaultSSHRelayURL is where the relay lives in the standard SSH deployment:
+// bound to loopback on the SSH host itself, reached through the SSH channel.
+const DefaultSSHRelayURL = "ws://127.0.0.1:8443/ws"
 
 // disconnect is the kill switch: sever the tunnel and every device session.
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {

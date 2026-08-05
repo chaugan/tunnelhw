@@ -80,6 +80,34 @@ SSH) carrying **yamux** multiplexed streams. WSS is a *carrier*: the control
 protocol is versioned and transport-agnostic so it could later ride HTTP/2 or
 QUIC without touching device logic.
 
+### 3.1 SSH as a carrier (the no-public-address deployment)
+
+Rejecting OpenSSH as the *protocol* did not rule it out as a *carrier*, and
+that distinction turned out to matter. A reverse tunnel needs a rendezvous
+point both ends can reach; requiring the relay to have a public address is a
+real barrier for the common case of "LLM on one machine, hardware on another,
+neither with a public IP."
+
+If the LLM machine runs sshd — which it usually does — that *is* the
+rendezvous. The agent (`internal/sshtun`) opens an outbound SSH connection and
+requests a `direct-tcpip` forward to the SSH host's own loopback, where the
+relay listens. The WebSocket/yamux protocol rides inside that channel
+unchanged, so this is a transport option, not a second protocol.
+
+Consequences, deliberate:
+
+- The relay binds `127.0.0.1` and is **never exposed**; the LLM reaches it over
+  localhost, the agent through SSH.
+- Plaintext `ws://` inside the SSH channel is correct, not a downgrade: SSH
+  supplies the encryption and authenticates the server by host key. The TLS
+  requirement is therefore waived when (and only when) the SSH carrier is in
+  use — never silently for direct connections.
+- Host keys are checked against `known_hosts`. An unknown host is a hard error
+  carrying the fingerprint, surfaced in the web UI for human approval (TOFU
+  with a human in the loop); a **changed** key always fails and is never
+  auto-accepted.
+- Credentials: private key (optionally passphrase-protected) or password.
+
 ## 4. Technology choices
 
 - **Go** for agent + relay: static cross-compiled binaries

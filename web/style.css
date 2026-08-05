@@ -134,3 +134,17 @@ ul.plain li:last-child { border-bottom: 0; }
 
 .msg-ok { color: var(--ok); }
 .msg-err { color: var(--bad); }
+
+.modes { display: flex; gap: 1.25rem; margin-bottom: .6rem; }
+.modes label { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+.modes input { width: auto; margin: 0; }
+
+.hostkey {
+  margin-top: .75rem;
+  padding: .75rem .9rem;
+  border: 1px solid var(--warn, #d8a657);
+  border-radius: 6px;
+  background: rgba(216, 166, 87, .08);
+}
+.hostkey p { margin: 0 0 .5rem; }
+.hostkey button { width: auto; margin-right: .5rem; }

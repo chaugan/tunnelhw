@@ -183,20 +183,16 @@ func TestEndToEnd(t *testing.T) {
 	if err := broker.Close(sess.ID); err != nil {
 		t.Fatal(err)
 	}
+	// The agent releases the claim when it processes the close notification,
+	// so the device frees up shortly after Close returns, not synchronously.
+	var s3 *relayapi.Session
 	waitFor(t, "device free after close", func() bool {
-		s2, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
-		if err != nil {
-			return false
-		}
-		broker.Close(s2.ID)
-		return true
+		var err error
+		s3, err = broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
+		return err == nil
 	})
 
 	// Read timeout semantics: no data → timed_out, empty.
-	s3, err := broker.Open(wordID, proto.OpenParams{Baud: 115200}, nil, "test-owner")
-	if err != nil {
-		t.Fatal(err)
-	}
 	r := s3.Read(100*time.Millisecond, 64, nil)
 	if !r.TimedOut || len(r.Data) != 0 {
 		t.Fatalf("timeout read = %+v", r)

@@ -20,12 +20,40 @@
   <h2>Relay</h2>
   <div id="relay-banner" class="banner banner-off">checking…</div>
   <form id="pair-form" autocomplete="off">
-    <input id="pair-url" type="text" placeholder="wss://relay.example.com" required>
+    <div class="modes">
+      <label><input type="radio" name="mode" value="direct" checked> Direct to relay</label>
+      <label><input type="radio" name="mode" value="ssh"> Through SSH</label>
+    </div>
+
+    <div id="mode-direct">
+      <input id="pair-url" type="text" placeholder="wss://relay.example.com:8443">
+      <p class="dim small">The relay must be reachable from this machine.</p>
+    </div>
+
+    <div id="mode-ssh" class="hidden">
+      <input id="ssh-host" type="text" placeholder="SSH host of the LLM machine, e.g. llm.example.com[:22]">
+      <input id="ssh-user" type="text" placeholder="SSH username">
+      <input id="ssh-key" type="text" placeholder="private key file (blank = try ~/.ssh/id_*)">
+      <input id="ssh-pass" type="password" placeholder="key passphrase or SSH password (optional)">
+      <input id="pair-url-ssh" type="text" placeholder="relay URL on that host (blank = ws://127.0.0.1:8443/ws)">
+      <p class="dim small">Connects out to the SSH server and reaches the relay on its
+      loopback — no public address needed anywhere. SSH provides the encryption.</p>
+    </div>
+
     <input id="pair-token" type="password" placeholder="pairing token" required>
     <input id="pair-name" type="text" placeholder="agent name (optional)">
     <button type="submit" id="pair-btn">Pair</button>
   </form>
   <div id="pair-msg" class="small"></div>
+
+  <div id="hostkey" class="hostkey hidden">
+    <p><strong>Unrecognized SSH host key.</strong> Verify this fingerprint matches
+    the server before accepting — on the LLM machine run
+    <code>ssh-keyscan -t ed25519 localhost | ssh-keygen -lf -</code>.</p>
+    <p class="mono" id="hostkey-fp"></p>
+    <button type="button" id="hostkey-accept">Accept and pair</button>
+    <button type="button" id="hostkey-cancel">Cancel</button>
+  </div>
 </section>
 
 <section>

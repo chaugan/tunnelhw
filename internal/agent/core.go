@@ -12,6 +12,7 @@ import (
 	"github.com/chaugan/tunnelhw/internal/names"
 	"github.com/chaugan/tunnelhw/internal/proto"
 	"github.com/chaugan/tunnelhw/internal/serialdev"
+	"github.com/chaugan/tunnelhw/internal/sshtun"
 	"github.com/google/uuid"
 )
 
@@ -75,23 +76,43 @@ func (c *Core) changed() {
 	}
 }
 
+// RelayIdentity is the persisted pairing with the relay, including the SSH
+// transport settings when the relay is reached through an SSH server.
+type RelayIdentity struct {
+	RelayURL   string
+	AgentID    string
+	Credential string
+	SSH        *sshtun.Config
+}
+
+// Paired reports whether the identity is complete enough to connect.
+func (r RelayIdentity) Paired() bool {
+	return r.RelayURL != "" && r.AgentID != "" && r.Credential != ""
+}
+
 // SetRelayIdentity persists the relay pairing. Core is the single owner of
 // the config — UI code must go through here, never mutate the config it was
 // constructed with (a shared-pointer write raced the device map before).
-func (c *Core) SetRelayIdentity(relayURL, agentID, credential string) error {
+func (c *Core) SetRelayIdentity(id RelayIdentity) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cfg.RelayURL = relayURL
-	c.cfg.AgentID = agentID
-	c.cfg.Credential = credential
+	c.cfg.RelayURL = id.RelayURL
+	c.cfg.AgentID = id.AgentID
+	c.cfg.Credential = id.Credential
+	c.cfg.SSH = id.SSH
 	return config.Save(c.dir, c.cfg)
 }
 
 // RelayIdentity returns the persisted pairing, if any.
-func (c *Core) RelayIdentity() (relayURL, agentID, credential string) {
+func (c *Core) RelayIdentity() RelayIdentity {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.cfg.RelayURL, c.cfg.AgentID, c.cfg.Credential
+	return RelayIdentity{
+		RelayURL:   c.cfg.RelayURL,
+		AgentID:    c.cfg.AgentID,
+		Credential: c.cfg.Credential,
+		SSH:        c.cfg.SSH,
+	}
 }
 
 // Activity returns the live activity log.

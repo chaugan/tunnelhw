@@ -30,6 +30,44 @@ reviewed by a three-model panel (Codex / Grok / Kimi) — see
 component code went through a second two-lens review round whose accepted
 findings are all applied.
 
+## Deployment topologies
+
+The relay is a small process that both ends connect *out* to. It does **not**
+need a public IP — it only needs to be reachable by the agent. Pick whichever
+of these describes your situation:
+
+### A. Through SSH — recommended, needs no public address at all
+
+If the LLM machine runs `sshd`, that is all the reachability you need. Run the
+relay on the LLM machine bound to loopback; the agent connects outbound over
+SSH and reaches the relay on the SSH host's own `127.0.0.1`. SSH provides the
+encryption and server authentication, so no TLS certificates are involved and
+**nothing is exposed to the internet**.
+
+```
+Windows agent  ──outbound SSH──▶  LLM machine
+(hardware)                        ├─ sshd
+                                  ├─ relay on 127.0.0.1:8443
+                                  └─ LLM → http://127.0.0.1:8443/mcp
+```
+
+The agent has an SSH client built in — no `ssh -L` to run or babysit. In the
+web UI choose **Through SSH**, enter the host and username, and leave the relay
+URL blank (it defaults to `ws://127.0.0.1:8443/ws`, i.e. the relay on the SSH
+host). On first connect the UI shows the server's host-key fingerprint for you
+to verify; it is recorded in `known_hosts` and a *changed* key is refused from
+then on.
+
+### B. Direct — relay reachable from the agent
+
+Agent and relay on the same LAN/VPN, or the relay has a public address. Use
+**Direct to relay** with `wss://host:8443` and run the relay with TLS certs.
+
+### C. Overlay network
+
+Both machines join Tailscale/WireGuard; the relay runs on the LLM machine and
+the agent uses its private mesh address. Topology B with private addressing.
+
 ## Quickstart (agent on Windows, relay on Linux)
 
 Build everything (needs Go ≥1.25; binaries land in `dist/`):
@@ -38,28 +76,46 @@ Build everything (needs Go ≥1.25; binaries land in `dist/`):
 scripts/build.sh 0.1.0
 ```
 
-**1. Relay (Linux server, next to the LLM):**
+This walks topology **A** (over SSH), which needs no public address.
+
+**1. Relay (on the Linux machine that runs the LLM):**
 
 ```bash
-./tunnelhw-relay-linux-amd64 serve --tls-cert cert.pem --tls-key key.pem   # or --insecure-dev for a LAN test
-./tunnelhw-relay-linux-amd64 pair-token          # print a single-use pairing token (5 min TTL)
-./tunnelhw-relay-linux-amd64 api-token --name llm-host   # print the LLM-host bearer token
+# Loopback-only: nothing is exposed to the network. SSH is the transport,
+# so --insecure-dev is correct here — it means "no TLS", not "no encryption".
+./tunnelhw-relay-linux-amd64 serve --listen 127.0.0.1:8443 --insecure-dev
+
+./tunnelhw-relay-linux-amd64 pair-token                  # single-use, 5 min TTL
+./tunnelhw-relay-linux-amd64 api-token --name llm-host   # bearer token for the LLM
 ```
+
+(For topology B instead, use `--listen :8443 --tls-cert cert.pem --tls-key key.pem`.)
 
 **2. Agent (Windows machine with the hardware):**
 
 ```powershell
-.\tunnelhw-agent-windows-amd64.exe        # add --insecure-dev only for a plaintext LAN test
+.\tunnelhw-agent-windows-amd64.exe
 ```
 
-Open http://127.0.0.1:8787, paste the relay URL (`wss://your-relay:8443`) and
-the pairing token, then toggle **Exposed** on the devices the LLM may use.
-Each gets a stable word-pair ID like `amber-falcon`.
+Open http://127.0.0.1:8787, choose **Through SSH**, enter the LLM machine's SSH
+host and username (plus a key file or password), leave the relay URL blank, and
+paste the pairing token. Verify the host-key fingerprint when prompted. Then
+toggle **Exposed** on the devices the LLM may use — each gets a stable
+word-pair ID like `amber-falcon`.
 
-**3. LLM host:** point an MCP client at `https://your-relay:8443/mcp` with
-`Authorization: Bearer <api token>`. Tools: `list_devices`, `open_device`,
-`read`, `write`, `set_params`, `drain`, `close_session`. A plain HTTP API
-mirrors them under `/api/v1/` with the same token.
+**3. LLM host:** the MCP server is built into the relay — nothing extra to
+install. Point an MCP client at `http://127.0.0.1:8443/mcp` (it is local to the
+LLM machine) with `Authorization: Bearer <api token>`. For example, in Claude
+Code:
+
+```bash
+claude mcp add tunnelhw --transport http http://127.0.0.1:8443/mcp \
+  --header "Authorization: Bearer <api token>"
+```
+
+Tools: `list_devices`, `open_device`, `read`, `write`, `set_params`, `drain`,
+`close_session`. If your LLM does not speak MCP, the same capabilities are
+available as a plain JSON API under `/api/v1/` with the same token.
 
 macOS note: cross-compiled darwin binaries enumerate ports with degraded
 metadata (no USB serial numbers — macOS needs cgo/IOKit for that); build

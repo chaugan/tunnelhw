@@ -60,8 +60,8 @@ func run(dir, listen string, insecureDev bool) error {
 	defer stop()
 
 	tunnels := &tunnelManager{ctx: ctx, core: core}
-	if relayURL, agentID, cred := core.RelayIdentity(); relayURL != "" && agentID != "" && cred != "" {
-		tunnels.Start(relayURL, agentID, cred, insecureDev)
+	if id := core.RelayIdentity(); id.Paired() {
+		tunnels.Start(id, insecureDev)
 	}
 
 	ln, err := webui.Listen(cfg.UIListen)
@@ -121,7 +121,7 @@ type tunnelManager struct {
 }
 
 // Start replaces any running tunnel with one using the given settings.
-func (m *tunnelManager) Start(relayURL, agentID, credential string, insecureDev bool) {
+func (m *tunnelManager) Start(id agent.RelayIdentity, insecureDev bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cancel != nil {
@@ -129,10 +129,11 @@ func (m *tunnelManager) Start(relayURL, agentID, credential string, insecureDev 
 	}
 	t := &agent.Tunnel{
 		Core:        m.core,
-		URL:         relayURL,
-		AgentID:     agentID,
-		Credential:  credential,
+		URL:         id.RelayURL,
+		AgentID:     id.AgentID,
+		Credential:  id.Credential,
 		InsecureDev: insecureDev,
+		SSH:         id.SSH,
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.tun, m.cancel = t, cancel
