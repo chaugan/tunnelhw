@@ -1,5 +1,5 @@
 // Package config persists agent state: relay pairing, device identity map,
-// and expose-list. Writes are atomic (temp file + rename) and private (0600) —
+// and expose-list. Writes are atomic (temp file + rename) and private (0600):
 // the credential lives here on platforms without a keychain integration yet.
 package config
 

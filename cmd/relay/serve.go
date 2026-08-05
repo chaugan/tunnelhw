@@ -128,7 +128,7 @@ func newServeMux(hub *relay.Hub, api *relayapi.API, store *auth.Store, limiter *
 
 	if mcpEnabled {
 		// The MCP handler carries its own bearer-token middleware (LLM-host
-		// principal) — strictly separate from agent credentials and never
+		// principal), strictly separate from agent credentials and never
 		// shared with the /ws or /pair paths.
 		m.Handle("/mcp", mcp.Handler(api.Broker, func(token string) ([]string, bool, bool) {
 			rec, ok := store.VerifyAPIToken(token)

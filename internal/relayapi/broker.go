@@ -1,6 +1,6 @@
 // Package relayapi is the relay's versioned core API: session brokerage with
 // LLM-safe read/write semantics. The MCP server and the HTTP API are both
-// thin adapters over this package — it is the tested seam.
+// thin adapters over this package; it is the tested seam.
 package relayapi
 
 import (
@@ -26,7 +26,7 @@ const (
 )
 
 // Session is one live device session brokered by the relay. Owner is the
-// identity of the credential that opened it (a token hash) — other
+// identity of the credential that opened it (a token hash). Other
 // credentials cannot see or touch the session (design review: a leaked
 // read-only token must not be able to drain another principal's session).
 type Session struct {

@@ -102,7 +102,7 @@ user where the platform supports it; use --system for a system-wide service.
 // than the invoking user: running as root, via sudo, or as a Windows service.
 // The credential store has to follow that distinction, because a relay
 // installed as a system service and the admin commands run with sudo must
-// land on the *same* store — otherwise tokens are minted where the service
+// land on the *same* store; otherwise tokens are minted where the service
 // will never look for them.
 func systemContext() bool {
 	if os.Getenv("SUDO_USER") != "" {
@@ -192,7 +192,7 @@ func runPairToken(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Pairing token (single use, shown once — paste it into the agent's web UI):\n\n  %s\n\nExpires: %s (in %s)\n",
+	fmt.Printf("Pairing token (single use, shown once; paste it into the agent's web UI):\n\n  %s\n\nExpires: %s (in %s)\n",
 		tok, exp.Format(time.RFC3339), time.Until(exp).Round(time.Second))
 	return nil
 }
@@ -221,7 +221,7 @@ func runAPIToken(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("API token (shown once — store it now):\n\n  %s\n\n", tok)
+	fmt.Printf("API token (shown once; store it now):\n\n  %s\n\n", tok)
 	if *name != "" {
 		fmt.Printf("Name:      %s\n", *name)
 	}

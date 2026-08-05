@@ -91,7 +91,7 @@ func (r RelayIdentity) Paired() bool {
 }
 
 // SetRelayIdentity persists the relay pairing. Core is the single owner of
-// the config — UI code must go through here, never mutate the config it was
+// the config: UI code must go through here, never mutate the config it was
 // constructed with (a shared-pointer write raced the device map before).
 func (c *Core) SetRelayIdentity(id RelayIdentity) error {
 	c.mu.Lock()
@@ -270,7 +270,7 @@ func (c *Core) updateRec(uuid string, mut func(*config.DeviceRecord)) error {
 	return nil
 }
 
-// ExposedDevices is the announce set: exposed devices only — the relay never
+// ExposedDevices is the announce set: exposed devices only; the relay never
 // learns about hidden ones.
 func (c *Core) ExposedDevices() []proto.Device {
 	c.mu.Lock()
@@ -354,7 +354,7 @@ type Session struct {
 	bytesIn, bytesOut uint64
 }
 
-// Count adds to the session byte counters (metadata only — payloads are
+// Count adds to the session byte counters (metadata only; payloads are
 // never logged).
 func (s *Session) Count(in, out int) {
 	s.mu.Lock()
@@ -434,7 +434,7 @@ func (c *Core) OpenSession(deviceID string, params proto.OpenParams) (*Session, 
 		}
 		c.mu.Unlock()
 		port.Close()
-		c.activity.Add("close", fmt.Sprintf("open of %s abandoned — access was revoked while the port was opening", deviceID))
+		c.activity.Add("close", fmt.Sprintf("open of %s abandoned: access was revoked while the port was opening", deviceID))
 		c.changed()
 		return nil, &proto.OpenResponse{OK: false, Reason: "unknown device " + deviceID}
 	}
@@ -459,7 +459,7 @@ func (c *Core) CloseSession(sid, reason string) {
 	}
 	s.Port.Close()
 	in, out := s.Counters()
-	c.activity.Add("close", fmt.Sprintf("session %s on %s closed (%s) — %dB in / %dB out", short(sid), s.DeviceID, reason, in, out))
+	c.activity.Add("close", fmt.Sprintf("session %s on %s closed (%s): %dB in / %dB out", short(sid), s.DeviceID, reason, in, out))
 	c.changed()
 }
 

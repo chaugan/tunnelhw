@@ -296,7 +296,7 @@ func WriteHeaderFrame(w io.Writer, v any) error {
 }
 
 // ReadHeaderFrame reads one JSON header line from br into v. The caller must
-// keep using the same bufio.Reader afterwards for raw stream data — bytes
+// keep using the same bufio.Reader afterwards for raw stream data: bytes
 // beyond the newline may already be buffered.
 func ReadHeaderFrame(br *bufio.Reader, v any) error {
 	line, err := ReadFrame(br)

@@ -11,7 +11,7 @@ import (
 )
 
 // windowsAgentPipe is where the OpenSSH-for-Windows agent listens. Unlike
-// unix, there is no SSH_AUTH_SOCK by default — the pipe path is fixed.
+// unix, there is no SSH_AUTH_SOCK by default; the pipe path is fixed.
 const windowsAgentPipe = `\\.\pipe\openssh-ssh-agent`
 
 func agentAddr() string {

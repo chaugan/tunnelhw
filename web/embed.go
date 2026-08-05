@@ -1,5 +1,5 @@
 // Package web embeds the zero-build web UI assets served by the agent's
-// localhost UI (ARCHITECTURE.md §10). Vanilla HTML/CSS/JS only — no build
+// localhost UI (ARCHITECTURE.md §10). Vanilla HTML/CSS/JS only: no build
 // step, preserving the single-binary install story.
 package web
 

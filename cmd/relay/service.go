@@ -15,7 +15,7 @@ const serviceName = "tunnelhw-relay"
 var systemScope bool
 
 // spec describes the relay service. args are the arguments the installed
-// service replays on every start — always beginning with "serve".
+// service replays on every start, always beginning with "serve".
 func spec(args []string) svc.Spec {
 	return svc.Spec{
 		Name:        serviceName,
@@ -36,7 +36,7 @@ func runServiceCmd(action string, rest []string) error {
 	stateDir := fs.String("state-dir", "", "directory holding auth.json")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file (PEM)")
 	tlsKey := fs.String("tls-key", "", "TLS private-key file (PEM)")
-	insecureDev := fs.Bool("insecure-dev", false, "serve without TLS — only safe on loopback behind SSH")
+	insecureDev := fs.Bool("insecure-dev", false, "serve without TLS (only safe on loopback behind SSH)")
 	mcp := fs.Bool("mcp", true, "serve the MCP endpoint")
 	system := fs.Bool("system", false, "install system-wide instead of for the current user")
 	if err := fs.Parse(rest); err != nil {

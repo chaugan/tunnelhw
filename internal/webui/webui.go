@@ -54,8 +54,8 @@ type Server struct {
 	tc          TunnelController
 	insecureDev bool
 
-	boundHost     string // e.g. "127.0.0.1:8787" — the only allowed Host
-	localhostHost string // "localhost:<port>" — also allowed
+	boundHost     string // e.g. "127.0.0.1:8787" (the only allowed Host)
+	localhostHost string // "localhost:<port>" (also allowed)
 	secret        string // per-launch CSRF secret
 	index         []byte // index.html with the secret injected
 
@@ -63,7 +63,7 @@ type Server struct {
 }
 
 // Listen binds the UI listener, refusing any non-loopback address. The host
-// must be a loopback IP literal — not "localhost" — so the bind never goes
+// must be a loopback IP literal (not "localhost"), so the bind never goes
 // dual-stack or non-local (ARCHITECTURE.md §7).
 func Listen(addr string) (net.Listener, error) {
 	host, _, err := net.SplitHostPort(addr)
@@ -72,13 +72,13 @@ func Listen(addr string) (net.Listener, error) {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return nil, fmt.Errorf("webui: refusing non-loopback listen address %q — the UI is localhost-only", addr)
+		return nil, fmt.Errorf("webui: refusing non-loopback listen address %q; the UI is localhost-only", addr)
 	}
 	return net.Listen("tcp", addr)
 }
 
 // New builds the UI server. boundAddr is the address the listener actually
-// bound (net.Listener.Addr().String()) — it anchors the Host/Origin
+// bound (net.Listener.Addr().String()); it anchors the Host/Origin
 // allowlist.
 func New(core *agent.Core, tc TunnelController, boundAddr string, insecureDev bool) (*Server, error) {
 	if core == nil || tc == nil {
@@ -156,7 +156,7 @@ func (s *Server) secure(next http.Handler) http.Handler {
 	})
 }
 
-// hostAllowed permits exactly the bound address and localhost:<port> —
+// hostAllowed permits exactly the bound address and localhost:<port>;
 // anything else (DNS-rebinding hostnames included) is rejected.
 func (s *Server) hostAllowed(host string) bool {
 	return host == s.boundHost || host == s.localhostHost
@@ -312,7 +312,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Over SSH the relay is normally right there on the SSH host's
-		// loopback — the overwhelmingly common case, so default to it.
+		// loopback, the overwhelmingly common case, so default to it.
 		req.RelayURL = DefaultSSHRelayURL
 	}
 	// Inside an SSH channel the traffic is already encrypted and the peer
@@ -330,7 +330,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	if useSSH {
 		sc, err := sshtun.Dial(ctx, *req.SSH)
 		if err != nil {
-			// An unfamiliar host key is not a failure — it is a question for
+			// An unfamiliar host key is not a failure; it is a question for
 			// the human. Hand the fingerprint to the UI so it can be verified
 			// and approved, then retried with accept_new_host_key.
 			var unknown *sshtun.UnknownHostKeyError
@@ -417,7 +417,7 @@ const DefaultSSHRelayURL = "ws://127.0.0.1:8443/ws"
 
 // reconnect clears the kill switch.
 func (s *Server) reconnect(w http.ResponseWriter, r *http.Request) {
-	s.core.Activity().Add("tunnel", "kill switch cleared — reconnecting")
+	s.core.Activity().Add("tunnel", "kill switch cleared, reconnecting")
 	s.tc.Resume()
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -425,7 +425,7 @@ func (s *Server) reconnect(w http.ResponseWriter, r *http.Request) {
 // disconnect is the kill switch: sever the tunnel and every device session.
 // It stays severed until reconnect is called.
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
-	s.core.Activity().Add("tunnel", "kill switch: tunnel stopped and all sessions closed — stays offline until you reconnect")
+	s.core.Activity().Add("tunnel", "kill switch: tunnel stopped and all sessions closed; stays offline until you reconnect")
 	s.tc.Disconnect()
 	s.core.CloseAll("kill switch")
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})
@@ -448,14 +448,14 @@ func normalizeRelayURL(raw string, insecureDev bool) (pairBase, tunnelURL string
 		httpScheme, wsScheme = "https", "wss"
 	case "ws", "http":
 		if !insecureDev {
-			return "", "", errors.New("plaintext relay URL — TLS is required unless the agent runs with --insecure-dev")
+			return "", "", errors.New("plaintext relay URL: TLS is required unless the agent runs with --insecure-dev")
 		}
 		httpScheme, wsScheme = "http", "ws"
 	default:
 		return "", "", fmt.Errorf("relay URL scheme %q: want wss:// or https://", u.Scheme)
 	}
 	// A relay behind a reverse-proxy path prefix mounts /pair and /ws under
-	// that prefix — derive both URLs from it. Accepted inputs:
+	// that prefix; derive both URLs from it. Accepted inputs:
 	// wss://host, wss://host/ws, wss://host/prefix, wss://host/prefix/ws.
 	prefix := strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), "/ws")
 	prefix = strings.TrimSuffix(prefix, "/")

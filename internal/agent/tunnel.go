@@ -45,7 +45,7 @@ type Tunnel struct {
 	lastPong atomic.Int64 // unix nanos of last pong (one session at a time)
 	// stopped latches the kill switch. Without it, Disconnect only severed the
 	// current session and the retry loop reconnected a second later,
-	// re-announcing every exposed device — a safety control that undid itself.
+	// re-announcing every exposed device, a safety control that undid itself.
 	stopped atomic.Bool
 	mu      sync.Mutex
 	ctrl    *proto.Conn   // nil when disconnected
@@ -157,7 +157,7 @@ func (t *Tunnel) validateURL() error {
 		// server authenticated by its host key, so plaintext ws:// is the
 		// correct choice there, not a downgrade.
 		if !t.usingSSH() && !t.InsecureDev {
-			return errors.New("relay URL uses ws:// — TLS is required unless the connection runs over SSH or insecure_dev is set")
+			return errors.New("relay URL uses plaintext ws://, but TLS is required unless the connection runs over SSH or insecure_dev is set")
 		}
 	default:
 		return fmt.Errorf("relay URL scheme %q: want wss://", u.Scheme)

@@ -10,7 +10,7 @@ import (
 // ShellExecuteExW validates cbSize against the SHELLEXECUTEINFOW it knows,
 // and rejects the call outright if it disagrees. A field of the wrong width
 // or a missed padding slot therefore shows up as a flat refusal to elevate,
-// with no hint as to why — so pin the size to the documented ABI.
+// with no hint as to why, so pin the size to the documented ABI.
 func TestShellExecuteInfoMatchesWindowsABI(t *testing.T) {
 	want := map[int]uintptr{
 		4: 60,  // 386 / arm: 32-bit pointers, no padding
@@ -21,7 +21,7 @@ func TestShellExecuteInfoMatchesWindowsABI(t *testing.T) {
 		t.Skipf("no expected size recorded for %d-bit pointers", unsafe.Sizeof(uintptr(0))*8)
 	}
 	if got := unsafe.Sizeof(shellExecuteInfo{}); got != want {
-		t.Fatalf("sizeof(SHELLEXECUTEINFOW) = %d, want %d — field layout has drifted from the Windows ABI", got, want)
+		t.Fatalf("sizeof(SHELLEXECUTEINFOW) = %d, want %d: field layout has drifted from the Windows ABI", got, want)
 	}
 }
 

@@ -302,7 +302,7 @@ func TestHideAndReleaseFreeTheDevice(t *testing.T) {
 	})
 	// Close notifies the agent asynchronously, so the claim can still be held
 	// for a moment. Wait for it to drop before asserting there is nothing left
-	// to release — otherwise this assertion is a coin flip.
+	// to release; otherwise this assertion is a coin flip.
 	waitFor(t, "claim dropped after close", func() bool { return len(core.Sessions()) == 0 })
 	if core.ReleaseDevice(dev.UUID, "test") {
 		t.Fatal("releasing an idle device must report nothing to release")
@@ -312,7 +312,7 @@ func TestHideAndReleaseFreeTheDevice(t *testing.T) {
 
 // The kill switch must latch. Before this, Disconnect only severed the current
 // session and the retry loop reconnected a second later, re-announcing every
-// exposed device — a safety control that quietly undid itself.
+// exposed device, a safety control that quietly undid itself.
 func TestKillSwitchStaysOff(t *testing.T) {
 	store, _ := auth.Open(t.TempDir())
 	hub := relay.NewHub(store)

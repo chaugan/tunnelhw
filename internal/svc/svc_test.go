@@ -48,7 +48,7 @@ func TestConfigScopeOptions(t *testing.T) {
 // target exists only in the system instance. This guards the override.
 func TestUserSystemdUnitTargetsDefaultTarget(t *testing.T) {
 	if strings.Contains(userSystemdScript, "multi-user.target") {
-		t.Fatal("user unit must not reference multi-user.target — it does not exist in a --user instance")
+		t.Fatal("user unit must not reference multi-user.target: it does not exist in a --user instance")
 	}
 	if !strings.Contains(userSystemdScript, "WantedBy=default.target") {
 		t.Fatal("user unit must be WantedBy=default.target so it starts at login")

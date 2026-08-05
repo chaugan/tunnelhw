@@ -1,6 +1,6 @@
 // Package mcp is the MCP adapter over the relay API: a bearer-authenticated
 // streamable-HTTP endpoint whose tools map 1:1 onto relayapi.Broker. It holds
-// no business logic — guardrails (bounded reads, write caps, exclusive open)
+// no business logic: guardrails (bounded reads, write caps, exclusive open)
 // live in the broker; this package only translates tool calls and enforces
 // the token's agent scope and read-only flag.
 //
@@ -32,7 +32,7 @@ import (
 var Version = "dev"
 
 // grant is the verified capability of one request's bearer token. owner is
-// the token's identity (its SHA-256 hex) — sessions are only visible to the
+// the token's identity (its SHA-256 hex); sessions are only visible to the
 // credential that opened them.
 type grant struct {
 	agents   []string // empty = all agents
@@ -74,7 +74,7 @@ func Handler(b *relayapi.Broker, verify func(token string) (agentFilter []string
 			jsonErr(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
-		// The owner key is the token's SHA-256 hex — the same identity the
+		// The owner key is the token's SHA-256 hex, the same identity the
 		// auth store records, so HTTP-API and MCP sessions share ownership.
 		sum := sha256.Sum256([]byte(raw))
 		g := &grant{agents: agents, readOnly: readOnly, owner: hex.EncodeToString(sum[:])}
@@ -92,7 +92,7 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 
 // Shared description fragments the LLM must see on every stateful tool.
 const (
-	sessionResetNote = " IMPORTANT: sessions do NOT survive an agent reconnect — if the agent's " +
+	sessionResetNote = " IMPORTANT: sessions do NOT survive an agent reconnect; if the agent's " +
 		"tunnel drops and comes back, all session IDs are invalid and writes are never " +
 		"buffered or replayed; call open_device again and re-establish state yourself."
 	exclusiveNote = " Devices are exclusive-open: only one session may hold a device at a " +
@@ -113,7 +113,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 		Name: "list_devices",
 		Description: "List the hardware devices currently exposed by connected agents. " +
 			"Each device has a stable human-readable word-pair id (e.g. 'amber-falcon') " +
-			"scoped to its agent — use that id with open_device. 'online' means the " +
+			"scoped to its agent; use that id with open_device. 'online' means the " +
 			"owning agent is connected; 'busy' means another session already holds the " +
 			"device." + exclusiveNote + " 'fingerprint_confidence' (strong/medium/weak) " +
 			"says how reliably the id sticks to the same physical device across replugs. " +
@@ -126,7 +126,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 			"read/write/set_params/drain/close_session." + exclusiveNote +
 			" Serial parameters default to 115200 8-N-1; pass baud/data_bits/parity/stop_bits " +
 			"to override at open." + sessionResetNote +
-			" Always call close_session when done — sessions are not garbage-collected while " +
+			" Always call close_session when done: sessions are not garbage-collected while " +
 			"the agent stays connected, and a forgotten session keeps the device busy for everyone.",
 	}, openDevice(b, g))
 
@@ -136,7 +136,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 			"indefinitely blocking: waits up to timeout_ms (default 2000, max 60000) for " +
 			"data, returns at most max_bytes (default 4096, max 262144). With delimiter " +
 			"set (e.g. \"\\n\"), returns once a chunk ending in the delimiter is available, " +
-			"or whatever has arrived when the timeout fires — partial reads are normal, " +
+			"or whatever has arrived when the timeout fires; partial reads are normal, " +
 			"check 'timed_out' and call read again for more. 'text' is present only when " +
 			"the bytes are valid UTF-8; 'data_b64' always carries the exact bytes. " +
 			"'eof' true means the session is over." + sessionResetNote,
@@ -146,7 +146,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 		Name: "write",
 		Description: "Write bytes to an open session. encoding 'utf8' (default) sends the " +
 			"string as-is; use 'base64' for binary payloads. Writes above 262144 bytes are " +
-			"rejected. Writes are never buffered across a disconnect — if the agent " +
+			"rejected. Writes are never buffered across a disconnect: if the agent " +
 			"reconnects mid-operation the session is gone and nothing is replayed." +
 			sessionResetNote,
 	}, writeTool(b, g))
@@ -154,9 +154,9 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 	sdk.AddTool(s, &sdk.Tool{
 		Name: "set_params",
 		Description: "Change line parameters on an open session: baud rate and/or the DTR/RTS " +
-			"control lines. ALL of these — including a baud-only change — require the device's " +
+			"control lines. ALL of these (including a baud-only change) require the device's " +
 			"per-device control-lines grant (see 'control_lines_allowed' in list_devices); " +
-			"without it the call fails. (Setting the baud at open_device time needs no grant — " +
+			"without it the call fails. (Setting the baud at open_device time needs no grant; " +
 			"only changing it mid-session does.) Toggling DTR/RTS can physically reset a board " +
 			"or put it into its bootloader. Omitted fields are left unchanged." + sessionResetNote,
 	}, setParamsTool(b, g))
@@ -172,7 +172,7 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 	sdk.AddTool(s, &sdk.Tool{
 		Name: "close_session",
 		Description: "Close an open session and release the device for other consumers. " +
-			"Explicit close is required — always call this when finished with a device. " +
+			"Explicit close is required: always call this when finished with a device. " +
 			"Closing an already-gone session returns an 'unknown session' error, which is " +
 			"safe to ignore.",
 	}, closeTool(b, g))
@@ -200,12 +200,12 @@ type emptyIn struct{}
 type deviceInfo struct {
 	AgentID             string `json:"agent_id" jsonschema:"id of the agent (machine) hosting the device"`
 	AgentName           string `json:"agent_name,omitempty" jsonschema:"human-readable agent name, if set"`
-	ID                  string `json:"id" jsonschema:"word-pair device id — pass this to open_device"`
+	ID                  string `json:"id" jsonschema:"word-pair device id (pass this to open_device)"`
 	Class               string `json:"class" jsonschema:"device class; 'serial' in v1"`
 	Transport           string `json:"transport" jsonschema:"how the port attaches: usb, native, bluetooth, ..."`
 	Path                string `json:"path" jsonschema:"OS port path, e.g. /dev/ttyUSB0 or COM3"`
 	Product             string `json:"product,omitempty" jsonschema:"product string reported by the hardware, if any"`
-	Confidence          string `json:"fingerprint_confidence" jsonschema:"strong, medium, or weak — how reliably the id follows the physical device"`
+	Confidence          string `json:"fingerprint_confidence" jsonschema:"strong, medium, or weak: how reliably the id follows the physical device"`
 	ControlLinesAllowed bool   `json:"control_lines_allowed" jsonschema:"whether set_params may toggle DTR/RTS on this device"`
 	Online              bool   `json:"online" jsonschema:"owning agent is currently connected"`
 	Busy                bool   `json:"busy" jsonschema:"another session holds the device right now"`

@@ -1,5 +1,5 @@
 // Command agent is the TunnelHW local agent: it enumerates serial hardware,
-// serves the localhost-only web UI, and — once paired — dials the relay
+// serves the localhost-only web UI, and (once paired) dials the relay
 // outbound to bridge device sessions (ARCHITECTURE.md §2).
 package main
 
@@ -48,7 +48,7 @@ func main() {
 
 	cfgDir := flag.String("config-dir", "", "config directory (default: the per-user config dir)")
 	listen := flag.String("listen", "", "web UI listen address, loopback only (default: from config, "+config.DefaultUIListen+")")
-	insecureDev := flag.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs — development only")
+	insecureDev := flag.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs (development only)")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -62,7 +62,7 @@ func main() {
 
 func usage() {
 	out := flag.CommandLine.Output()
-	fmt.Fprintf(out, `TunnelHW agent — exposes selected local serial hardware to a paired relay.
+	fmt.Fprintf(out, `TunnelHW agent: exposes selected local serial hardware to a paired relay.
 
 Usage:
   %s [flags]                     run in the foreground
@@ -94,7 +94,7 @@ func runServiceCmd(action string, rest []string) error {
 	fs := flag.NewFlagSet("service "+action, flag.ExitOnError)
 	cfgDir := fs.String("config-dir", "", "config directory the service should use")
 	listen := fs.String("listen", "", "web UI listen address, loopback only")
-	insecureDev := fs.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs — development only")
+	insecureDev := fs.Bool("insecure-dev", false, "permit plaintext ws:// relay URLs (development only)")
 	system := fs.Bool("system", false, "install system-wide instead of for the current user")
 	if err := fs.Parse(rest); err != nil {
 		return err

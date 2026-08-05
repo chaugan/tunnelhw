@@ -37,7 +37,7 @@ Host *
 		t.Fatalf("bastion = %+v", got)
 	}
 	// First match wins for single-valued keys, but IdentityFile accumulates
-	// across matching blocks — the "Host *" fallback must also be offered.
+	// across matching blocks; the "Host *" fallback must also be offered.
 	if len(got.IdentityFiles) != 2 {
 		t.Fatalf("identity files = %v", got.IdentityFiles)
 	}

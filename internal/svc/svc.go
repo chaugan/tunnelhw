@@ -1,5 +1,5 @@
 // Package svc runs a TunnelHW binary either in the foreground or under the
-// platform's service manager — Windows services, systemd, or launchd — behind
+// platform's service manager (Windows services, systemd, or launchd) behind
 // one set of subcommands.
 //
 // The important wrinkle is *which account* the service runs as. The agent
@@ -61,7 +61,7 @@ func (s Spec) config() *service.Config {
 // userSystemdScript replaces the library's default unit template for
 // per-user services. Two things in the default are wrong for a `--user`
 // instance: it installs `WantedBy=multi-user.target`, a target that only
-// exists in the system instance — so the unit would never start at login —
+// exists in the system instance (so the unit would never start at login),
 // and it waits two minutes before restarting, which is a long outage for a
 // tunnel that should reconnect promptly.
 const userSystemdScript = `[Unit]
@@ -99,7 +99,7 @@ func (p *program) Start(s service.Service) error {
 		if p.err != nil && p.ctx.Err() == nil {
 			// The work failed on its own rather than being asked to stop.
 			// Nothing will call Stop, and the service runner blocks until it
-			// is signalled — so without this a startup error (bad flags, port
+			// is signalled, so without this a startup error (bad flags, port
 			// in use) would hang in the foreground and, under a service
 			// manager, look like a healthy process doing nothing.
 			// The service logger writes to stderr when interactive and to the
@@ -178,7 +178,7 @@ func resolveScope(spec Spec) (Spec, string) {
 		return spec, ""
 	}
 	// Under sudo the "user" is root, so per-user scope would mean a systemd
-	// --user service owned by root — something nobody wants and which does not
+	// --user service owned by root, something nobody wants and which does not
 	// run without a root login session. Reaching for sudo says "system".
 	if os.Getenv("SUDO_USER") != "" {
 		spec.System = true
@@ -214,12 +214,12 @@ func Control(spec Spec, action string) error {
 	} else if user, system := unitPaths(spec.Name); exists(user) && exists(system) {
 		// Both scopes installed: acting on one silently would look like the
 		// command did nothing to the other.
-		fmt.Printf("warning: %s is installed twice — per-user (%s) and system-wide (%s).\n"+
+		fmt.Printf("warning: %s is installed twice: per-user (%s) and system-wide (%s).\n"+
 			"         Acting on the %s one.\n",
 			spec.Name, user, system, scopeWord(spec))
 	}
 	if elevationSupported() && needsElevation(action) && !isElevated() {
-		fmt.Printf("%s needs Administrator rights — requesting elevation…\n", action)
+		fmt.Printf("%s needs Administrator rights; requesting elevation…\n", action)
 		code, err := relaunchElevated()
 		if err != nil {
 			return err
@@ -279,14 +279,14 @@ func Control(spec Spec, action string) error {
 
 // installError adds the context the service manager's bare exit status omits.
 // The usual cause on Linux is running a user service from a session with no
-// user D-Bus instance — an SSH login without lingering, typically — where
+// user D-Bus instance (an SSH login without lingering, typically), where
 // `systemctl --user` cannot work at all.
 func installError(spec Spec, err error) error {
 	if spec.UserScoped() && runtime.GOOS == "linux" {
 		if os.Getenv("XDG_RUNTIME_DIR") == "" || os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
 			return fmt.Errorf("%w\n\nThis session has no user systemd instance (XDG_RUNTIME_DIR or "+
-				"DBUS_SESSION_BUS_ADDRESS is unset), so `systemctl --user` cannot run — common over "+
-				"plain SSH.\nEither log in on the console, enable lingering with "+
+				"DBUS_SESSION_BUS_ADDRESS is unset), so `systemctl --user` cannot run (common over "+
+				"plain SSH).\nEither log in on the console, enable lingering with "+
 				"`sudo loginctl enable-linger $USER` and reconnect, or install a system service:\n"+
 				"  %s service install --system …", err, spec.Name)
 		}
@@ -331,7 +331,7 @@ func printPostInstallNotes(spec Spec) {
 	exe, _ := os.Executable()
 	fmt.Printf("  binary:  %s\n", exe)
 	fmt.Printf("  args:    %s\n", strings.Join(spec.Arguments, " "))
-	fmt.Println("  NOTE: the service runs this exact path — reinstall if you move the binary.")
+	fmt.Println("  NOTE: the service runs this exact path; reinstall if you move the binary.")
 
 	switch {
 	case runtime.GOOS == "windows":

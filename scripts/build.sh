@@ -31,22 +31,22 @@ if command -v go-winres >/dev/null 2>&1; then
       --out "cmd/${bin}/rsrc"
   done
 else
-  echo "warning: go-winres not found — windows exes will lack version resources" >&2
+  echo "warning: go-winres not found; windows exes will lack version resources" >&2
 fi
 
 echo "building TunnelHW ${VERSION}"
-# Agent — runs on the machine with the hardware.
+# Agent: runs on the machine with the hardware.
 build windows amd64 agent tunnelhw-agent-windows-amd64.exe
 build windows arm64 agent tunnelhw-agent-windows-arm64.exe
 build linux   amd64 agent tunnelhw-agent-linux-amd64
 build linux   arm64 agent tunnelhw-agent-linux-arm64
 build darwin  amd64 agent tunnelhw-agent-darwin-amd64
 build darwin  arm64 agent tunnelhw-agent-darwin-arm64
-# Relay — runs on the server next to the LLM.
+# Relay: runs on the server next to the LLM.
 build windows amd64 relay tunnelhw-relay-windows-amd64.exe
 build windows arm64 relay tunnelhw-relay-windows-arm64.exe
 build linux   amd64 relay tunnelhw-relay-linux-amd64
 build linux   arm64 relay tunnelhw-relay-linux-arm64
 build darwin  amd64 relay tunnelhw-relay-darwin-amd64
 build darwin  arm64 relay tunnelhw-relay-darwin-arm64
-echo "done — binaries in dist/"
+echo "done: binaries in dist/"

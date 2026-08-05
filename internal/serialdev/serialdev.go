@@ -61,8 +61,8 @@ func fingerprintFor(p PortInfo, goos string) Fingerprint {
 			Transport:  proto.TransportUSB,
 		}
 	}
-	// USB without a serial number: identity is VID:PID + current path — weak,
-	// it renumbers when devices come and go.
+	// USB without a serial number: identity is VID:PID + current path, which
+	// is weak because it renumbers when devices come and go.
 	if p.IsUSB {
 		return Fingerprint{
 			Key:        "usb:" + p.VID + ":" + p.PID + ":" + p.Path,

@@ -161,7 +161,7 @@ func hashEqual(hash, secret string) bool {
 }
 
 // MintPairingToken creates a single-use, short-lived pairing token and
-// returns its plaintext — the only time it exists outside a hash.
+// returns its plaintext, the only time it exists outside a hash.
 func (s *Store) MintPairingToken() (string, time.Time, error) {
 	tok, err := newSecret()
 	if err != nil {
@@ -182,8 +182,8 @@ func (s *Store) MintPairingToken() (string, time.Time, error) {
 	return tok, exp, s.saveLocked()
 }
 
-// ErrBadPairing is returned for invalid, expired, or reused pairing tokens —
-// indistinguishably, on purpose.
+// ErrBadPairing is returned for invalid, expired, or reused pairing tokens.
+// The three cases are deliberately indistinguishable.
 var ErrBadPairing = errors.New("invalid or expired pairing token")
 
 // ExchangePairing consumes a pairing token and mints the agent identity.

@@ -108,7 +108,7 @@ type UnknownHostKeyError struct {
 }
 
 func (e *UnknownHostKeyError) Error() string {
-	return fmt.Sprintf("unknown SSH host key for %s (fingerprint %s) — verify it, then accept it to continue", e.Host, e.Fingerprint)
+	return fmt.Sprintf("unknown SSH host key for %s (fingerprint %s): verify it, then accept it to continue", e.Host, e.Fingerprint)
 }
 
 // ChangedHostKeyError is returned when the server presents a different key
@@ -119,7 +119,7 @@ type ChangedHostKeyError struct {
 }
 
 func (e *ChangedHostKeyError) Error() string {
-	return fmt.Sprintf("SSH host key for %s CHANGED (now %s) — refusing to connect; if this is expected, remove the old entry from known_hosts", e.Host, e.Fingerprint)
+	return fmt.Sprintf("SSH host key for %s CHANGED (now %s). Refusing to connect; if this is expected, remove the old entry from known_hosts", e.Host, e.Fingerprint)
 }
 
 // Client is a live SSH connection used as a dialer.
@@ -157,8 +157,8 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	// A mismatch on the first attempt is not yet evidence of a changed key:
 	// we may simply have negotiated an algorithm known_hosts has no entry
-	// for. Retry pinned to the algorithms actually on file — OpenSSH's
-	// behaviour — and only then believe it.
+	// for. Retry pinned to the algorithms actually on file (OpenSSH's
+	// behaviour) and only then believe it.
 	var mismatch *hostKeyMismatch
 	if !errors.As(err, &mismatch) || len(mismatch.knownAlgos) == 0 {
 		return nil, err
@@ -360,7 +360,7 @@ func authMethods(cfg Config) (*authPlan, error) {
 			if errors.As(err, &needsPass) {
 				p.tried = append(p.tried, path+" (SKIPPED: encrypted, needs a passphrase)")
 				if required {
-					return fmt.Errorf("sshtun: key %s is passphrase-protected — supply the passphrase", path)
+					return fmt.Errorf("sshtun: key %s is passphrase-protected; supply the passphrase", path)
 				}
 				return nil
 			}
@@ -433,7 +433,7 @@ func authMethods(cfg Config) (*authPlan, error) {
 	}
 
 	if len(p.methods) == 0 {
-		return nil, fmt.Errorf("sshtun: no usable SSH credentials — set a key file or password. Looked at: %s", p.Summary())
+		return nil, fmt.Errorf("sshtun: no usable SSH credentials; set a key file or password. Looked at: %s", p.Summary())
 	}
 	return p, nil
 }
@@ -481,7 +481,7 @@ func hostKeyCallback(cfg Config) (ssh.HostKeyCallback, error) {
 		}
 		if len(kerr.Want) > 0 {
 			// Keys are on file but not this one. Could be a genuine change or
-			// just an algorithm we have no entry for — Dial retries pinned to
+			// just an algorithm we have no entry for. Dial retries pinned to
 			// the recorded algorithms before concluding anything.
 			return &hostKeyMismatch{
 				host:        hostname,

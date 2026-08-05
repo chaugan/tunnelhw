@@ -30,12 +30,12 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// sshServer is a minimal in-process sshd that serves direct-tcpip channels —
+// sshServer is a minimal in-process sshd that serves direct-tcpip channels,
 // exactly the forwarding TunnelHW relies on. It stands in for the sshd on the
 // LLM machine.
 type sshServer struct {
 	addr string
-	// signer is the ed25519 host key — the one OpenSSH prefers and therefore
+	// signer is the ed25519 host key, the one OpenSSH prefers and therefore
 	// the one that ends up in known_hosts. The server also offers ECDSA,
 	// which Go's client prefers, so the two disagree exactly as a real
 	// server does.
@@ -206,7 +206,7 @@ func TestEndToEndOverSSH(t *testing.T) {
 
 	// Approved: connect, and the key is recorded for next time.
 	sshCfg.AcceptNewHostKey = true
-	// The relay URL is resolved on the SSH host — plaintext ws:// inside the
+	// The relay URL is resolved on the SSH host: plaintext ws:// inside the
 	// SSH channel, and InsecureDev deliberately stays false.
 	tun := &agent.Tunnel{
 		Core:       core,
@@ -258,7 +258,7 @@ func TestSSHChangedHostKeyRefused(t *testing.T) {
 	c.Close()
 
 	// Record the FIRST server's key against the SECOND server's address: the
-	// second server will now present a key that contradicts the record —
+	// second server will now present a key that contradicts the record,
 	// the impersonation case known_hosts exists to catch.
 	other := startSSHServer(t, "u", "p")
 	line := knownhosts.Line([]string{knownhosts.Normalize(other.addr)}, first.signer.PublicKey())
@@ -279,7 +279,7 @@ func TestSSHChangedHostKeyRefused(t *testing.T) {
 
 // A server offers several host keys; OpenSSH records only the one it
 // negotiated (ed25519), while Go's client prefers ECDSA. The client must
-// recognise the host anyway — reporting "host key CHANGED" here is a false
+// recognise the host anyway; reporting "host key CHANGED" here is a false
 // alarm that reads as an attack to the user.
 func TestSSHKnownHostsAlgorithmMismatch(t *testing.T) {
 	srv := startSSHServer(t, "u", "p")

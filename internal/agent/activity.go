@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Entry is one activity-log line. Metadata only — device payloads are never
+// Entry is one activity-log line. Metadata only; device payloads are never
 // logged (ARCHITECTURE.md §7).
 type Entry struct {
 	Time time.Time `json:"time"`
