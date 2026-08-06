@@ -136,9 +136,10 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 	sdk.AddTool(s, &sdk.Tool{
 		Name: "read",
 		Description: "Read buffered output from an open session. Bounded and never " +
-			"indefinitely blocking: waits up to timeout_ms (default 2000, max 60000) for " +
-			"data, returns at most max_bytes (default 4096, max 262144; timeout_ms is capped " +
-			"at 55000 so the answer always beats a client's own 60s call limit). Set lines " +
+			"indefinitely blocking: waits up to timeout_ms (default 2000, max 55000) for " +
+			"data, returns at most max_bytes (default 4096, max 262144). The 55000 ceiling " +
+			"leaves headroom under the 60s call limit most MCP clients impose, so a long " +
+			"read returns an answer instead of failing as a transport timeout. Set lines " +
 			"true for log-shaped output to get only whole lines, with any partial tail " +
 			"held over. With delimiter " +
 			"set (e.g. \"\\n\"), returns once a chunk ending in the delimiter is available, " +
@@ -286,7 +287,7 @@ func openDevice(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[openIn, openOut]
 
 type readIn struct {
 	SessionID string `json:"session_id" jsonschema:"session id from open_device"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"how long to wait for data in milliseconds; default 2000, max 60000"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"how long to wait for data in milliseconds; default 2000, max 55000 (values above are clamped)"`
 	MaxBytes  int    `json:"max_bytes,omitempty" jsonschema:"maximum bytes to return; default 4096, max 262144"`
 	Delimiter string `json:"delimiter,omitempty" jsonschema:"return once data ending in this string is available, e.g. \"\\n\""`
 	Lines     bool   `json:"lines,omitempty" jsonschema:"return only whole lines, holding any partial trailing line for the next call; best for log-shaped output"`

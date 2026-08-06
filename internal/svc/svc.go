@@ -270,7 +270,7 @@ func Control(spec Spec, action string) error {
 		if err := service.Control(s, action); err != nil {
 			return err
 		}
-		fmt.Printf("%s: %sed\n", spec.Name, strings.TrimSuffix(action, "e"))
+		fmt.Printf("%s: %s\n", spec.Name, pastTense(action))
 		return nil
 	default:
 		return fmt.Errorf("unknown service action %q (want install, uninstall, start, stop, restart, status)", action)
@@ -316,6 +316,24 @@ func scopeFlag(system bool) string {
 		return " --system"
 	}
 	return ""
+}
+
+// pastTense reports an action in the past tense for the confirmation line.
+// A general rule does not exist in English, and guessing produced "stoped".
+func pastTense(action string) string {
+	switch action {
+	case "stop":
+		return "stopped"
+	case "start":
+		return "started"
+	case "restart":
+		return "restarted"
+	case "install":
+		return "installed"
+	case "uninstall":
+		return "uninstalled"
+	}
+	return action + "ed"
 }
 
 func scopeWord(spec Spec) string {

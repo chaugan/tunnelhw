@@ -255,7 +255,7 @@ Lifecycle limits as actually enforced:
 | WebSocket carrier frame | 2 MiB | agent `wsReadLimit` |
 | single write | 256 KiB | `relayapi.MaxWriteBytes` |
 | single read | ≤ 256 KiB, default 4 KiB | `relayapi.MaxReadBytes` / `DefaultReadMax` |
-| read timeout | ≤ 60 s, default 2 s | `relayapi.MaxReadTimeout` / `DefaultTimeout` |
+| read timeout | ≤ 55 s, default 2 s | `relayapi.MaxReadTimeout` / `DefaultTimeout` |
 | per-session receive buffer | 1 MiB, then backpressure | `relayapi.sessionBufCap` |
 | hello / open-header handshake | 15 s | agent `helloTimeout`, `openHdrTimeout` |
 | yamux | 30 s keepalive, 15 s write timeout, 256 KiB stream window, 64 accept backlog, 15 s open / 10 s close timeouts | `internal/mux` |
