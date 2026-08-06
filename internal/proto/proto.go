@@ -97,6 +97,7 @@ type DeviceMeta struct {
 	Product               string `json:"product,omitempty"`
 	FingerprintConfidence string `json:"fingerprint_confidence"`
 	ControlLinesAllowed   bool   `json:"control_lines_allowed"`
+	AssertLinesOnOpen     bool   `json:"assert_lines_on_open"`
 }
 
 // Device is one exposed device as announced to the relay. ID is the
@@ -150,6 +151,12 @@ type OpenParams struct {
 	DataBits int    `json:"data_bits,omitempty"` // default 8
 	Parity   string `json:"parity,omitempty"`    // none|odd|even (default none)
 	StopBits string `json:"stop_bits,omitempty"` // 1|1.5|2 (default 1)
+
+	// AssertLinesOnOpen raises DTR and RTS as the port opens. It is set by
+	// the agent from per-device policy and is deliberately NOT on the wire
+	// (`json:"-"`): raising these lines resets boards wired for auto-reset,
+	// so the decision belongs to the operator, never to the consumer.
+	AssertLinesOnOpen bool `json:"-"`
 }
 
 // OpenRequest is the first frame on a new device data stream (relay → agent).

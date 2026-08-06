@@ -222,6 +222,14 @@ func (c *Core) ReleaseDevice(uuid, reason string) bool {
 	return true
 }
 
+// SetAssertLinesOnOpen controls whether DTR/RTS are raised when the port is
+// opened. Off by default: raising them resets any board wired for auto-reset,
+// so a plain read would reboot the device. Some USB-CDC devices need it before
+// they will transmit, which is why it exists at all.
+func (c *Core) SetAssertLinesOnOpen(uuid string, on bool) error {
+	return c.updateRec(uuid, func(r *config.DeviceRecord) { r.AssertLinesOnOpen = on })
+}
+
 // SetControlLines toggles the privileged control-lines/baud grant.
 func (c *Core) SetControlLines(uuid string, allowed bool) error {
 	return c.updateRec(uuid, func(r *config.DeviceRecord) { r.AllowControlLines = allowed })
@@ -297,6 +305,7 @@ func (c *Core) ExposedDevices() []proto.Device {
 				Product:               ds.Info.Product,
 				FingerprintConfidence: ds.FP.Confidence,
 				ControlLinesAllowed:   ds.Rec.AllowControlLines,
+				AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
 			},
 		})
 	}
@@ -333,6 +342,7 @@ func (c *Core) UIDevices() []UIDevice {
 					Product:               ds.Info.Product,
 					FingerprintConfidence: ds.FP.Confidence,
 					ControlLinesAllowed:   ds.Rec.AllowControlLines,
+					AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
 				},
 			},
 			Exposed: ds.Rec.Exposed,
@@ -400,6 +410,9 @@ func (c *Core) OpenSession(deviceID string, params proto.OpenParams) (*Session, 
 	}
 	path := target.Info.Path
 	devUUID := target.Rec.UUID
+	// Line policy is the operator's, never the consumer's: overwrite whatever
+	// arrived over the wire.
+	params.AssertLinesOnOpen = target.Rec.AssertLinesOnOpen
 	// Claim before releasing the lock so a concurrent open sees busy while
 	// the (slow) hardware open happens outside the lock.
 	sid := uuid.NewString()

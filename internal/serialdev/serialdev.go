@@ -121,7 +121,18 @@ func Open(path string, p proto.OpenParams) (Port, error) {
 }
 
 func modeFor(p proto.OpenParams) (*serial.Mode, error) {
-	m := &serial.Mode{BaudRate: p.Baud, DataBits: 8, Parity: serial.NoParity, StopBits: serial.OneStopBit}
+	// The library raises DTR and RTS when InitialStatusBits is nil. On any
+	// board wired for auto-reset (DTR/RTS to EN/IO0, which is every ESP32 and
+	// Arduino dev board) that resets the chip the instant the port opens, so
+	// merely reading from a device would reboot it. Leave the lines alone
+	// unless per-device policy says otherwise.
+	m := &serial.Mode{
+		BaudRate: p.Baud, DataBits: 8, Parity: serial.NoParity, StopBits: serial.OneStopBit,
+		InitialStatusBits: &serial.ModemOutputBits{
+			DTR: p.AssertLinesOnOpen,
+			RTS: p.AssertLinesOnOpen,
+		},
+	}
 	if p.Baud <= 0 {
 		return nil, fmt.Errorf("serialdev: invalid baud %d", p.Baud)
 	}

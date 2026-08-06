@@ -210,6 +210,7 @@ func (s *Server) deviceToggle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Exposed           *bool `json:"exposed"`
 		AllowControlLines *bool `json:"allow_control_lines"`
+		AssertLinesOnOpen *bool `json:"assert_lines_on_open"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad JSON body")
@@ -224,6 +225,12 @@ func (s *Server) deviceToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AllowControlLines != nil {
 		if err := s.core.SetControlLines(id, *req.AllowControlLines); err != nil {
+			jsonErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+	}
+	if req.AssertLinesOnOpen != nil {
+		if err := s.core.SetAssertLinesOnOpen(id, *req.AssertLinesOnOpen); err != nil {
 			jsonErr(w, http.StatusNotFound, err.Error())
 			return
 		}

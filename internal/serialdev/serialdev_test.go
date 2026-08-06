@@ -58,3 +58,31 @@ func TestModeFor(t *testing.T) {
 		t.Errorf("mode = %+v", m)
 	}
 }
+
+// The library raises DTR and RTS when InitialStatusBits is nil, which resets
+// any board wired for auto-reset the moment the port opens. Opening a device
+// must not touch the hardware unless the operator asked for it.
+func TestOpenDoesNotAssertControlLinesByDefault(t *testing.T) {
+	m, err := modeFor(proto.OpenParams{Baud: 115200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.InitialStatusBits == nil {
+		t.Fatal("InitialStatusBits is nil, so the library will raise DTR and RTS and reset the board")
+	}
+	if m.InitialStatusBits.DTR || m.InitialStatusBits.RTS {
+		t.Fatalf("opening must leave the control lines alone: DTR=%v RTS=%v",
+			m.InitialStatusBits.DTR, m.InitialStatusBits.RTS)
+	}
+
+	// Devices that need the lines raised (some USB-CDC firmware only
+	// transmits once DTR is set) opt in per device.
+	m, err = modeFor(proto.OpenParams{Baud: 115200, AssertLinesOnOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.InitialStatusBits.DTR || !m.InitialStatusBits.RTS {
+		t.Fatalf("opt-in must raise both lines: DTR=%v RTS=%v",
+			m.InitialStatusBits.DTR, m.InitialStatusBits.RTS)
+	}
+}

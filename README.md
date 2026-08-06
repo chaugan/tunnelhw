@@ -164,6 +164,10 @@ behaviour.
 - **Control lines are a separate grant.** `set_params` is refused unless you
   enable **Control lines** for that device, because DTR/RTS can reset a board
   or drop it into its bootloader.
+- **Opening a device does not touch its control lines.** DTR and RTS stay low,
+  so simply reading from a board wired for auto-reset (every ESP32 and Arduino
+  dev board) will not reboot it. Some USB-CDC firmware stays silent until the
+  host raises DTR; for those, enable **DTR on open** for that device.
 - **Read-only tokens** (`api-token --read-only`) cannot open a session, and
   sessions are visible only to the token that opened them, so read-only is in
   practice *list-only*, good for inventory rather than watching live traffic.

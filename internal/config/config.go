@@ -18,6 +18,9 @@ type DeviceRecord struct {
 	WordID            string `json:"word_id"`
 	Exposed           bool   `json:"exposed"`
 	AllowControlLines bool   `json:"allow_control_lines"`
+	// AssertLinesOnOpen raises DTR/RTS at open. Off by default because it
+	// resets auto-reset boards; some USB-CDC devices need it to transmit.
+	AssertLinesOnOpen bool `json:"assert_lines_on_open,omitempty"`
 }
 
 // Config is the agent's persisted state. Note there is deliberately no

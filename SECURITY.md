@@ -58,6 +58,10 @@ the hardware from a user who already has an LLM session on it.
   | `serve --listen 0.0.0.0:8443 --insecure-dev` | **refused**. The relay will not start; credentials and device traffic would cross the network in clear |
   | `serve --listen :8443 --tls-cert … --tls-key …` | correct for a directly reachable relay |
 
+- **Opening a device leaves its control lines alone.** DTR and RTS are not
+  raised at open, so reading from a board does not reset it. Raising them is
+  opt-in per device (**DTR on open**), because it is the same physical action
+  as a reset.
 - **Control lines are a separate per-device grant.** Toggling DTR/RTS or
   changing baud can reset a board or drop it into its bootloader, so
   `set_params` is refused unless you enable it for that device.
