@@ -168,14 +168,14 @@ behaviour.
   re-enumerates after a firmware flash, the session closes and reads report
   `eof`. Without that, reads return nothing for ever, which is impossible to
   tell apart from a device that simply has nothing to say.
-- **Monitoring keeps the port open.** Some hardware resets when its port is
-  opened, and the agent cannot always prevent that: on Windows the port is
-  opened by the OS before any line settings apply, so a board whose reset is
-  wired to DTR reboots regardless. Enable **Monitor** for such a device and the
-  agent opens the port once and holds it. Sessions then attach instead of
-  reopening, so the reset happens when monitoring starts and never again. It
-  also records recent output, so anything the device says between sessions is
-  replayed to the next one rather than lost.
+- **Monitoring keeps the port open and records output.** Enable **Monitor** for
+  a device and the agent opens its port once and holds it, reading continuously
+  into a 256 KB backlog. Sessions then attach to that stream rather than
+  opening the port themselves, which has two effects. Anything the device says
+  between sessions is kept and replayed to the next one, instead of being lost,
+  which matters most for devices that log at boot. And because the port is
+  opened once rather than per session, hardware that does react to being opened
+  reacts once, when monitoring starts.
 - **Opening a device does not touch its control lines.** DTR and RTS stay low,
   so simply reading from a board wired for auto-reset (every ESP32 and Arduino
   dev board) will not reboot it. Some USB-CDC firmware stays silent until the

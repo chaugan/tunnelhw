@@ -6,21 +6,19 @@ import (
 	"io"
 	"sync"
 
-	"github.com/chaugan/tunnelhw/internal/proto"
 	"github.com/chaugan/tunnelhw/internal/serialdev"
 )
 
 // A monitor holds a device's port open continuously and records what it says.
 //
-// Two problems make this necessary rather than merely convenient.
+// It exists for two reasons.
 //
-// Opening a port resets some hardware and the agent cannot prevent it. On
-// Windows the port is opened by CreateFile before any line settings can be
-// applied, so the driver asserts DTR from the port's existing configuration
-// and a board whose reset is wired to that line reboots before our own
-// settings land. Holding the port open moves that from once per access to
-// once per monitoring session: the reset happens when monitoring starts, and
-// never again while it runs.
+// Some hardware reacts to its port being opened. Leaving the control lines
+// alone at open is enough for the boards tested so far, but the port is opened
+// by CreateFile on Windows before any line settings can be applied, so a
+// driver default could still assert DTR ahead of us on hardware we have not
+// seen. Holding the port open sidesteps the question: it is opened once, when
+// monitoring starts, rather than on every session.
 //
 // Anything the device says between sessions is otherwise lost, which is
 // exactly when a device that logs at boot is most interesting.
@@ -182,8 +180,8 @@ func (s *subscriber) Write(p []byte) (int, error) {
 	return s.m.port.Write(p)
 }
 
-// Close detaches this session. The port stays open, which is the whole point:
-// closing it would reopen, and reopening resets the hardware.
+// Close detaches this session and leaves the port open, which is the point:
+// the next session attaches rather than reopening.
 func (s *subscriber) Close() error {
 	s.close()
 	s.m.detach(s.id)
@@ -200,7 +198,3 @@ func (s *subscriber) SetParams(baud *int, dtr, rts *bool) error {
 // the same interface as a directly opened port, so nothing downstream needs to
 // know whether it is talking to hardware or to a monitor.
 var _ serialdev.Port = (*subscriber)(nil)
-
-// openParamsForMonitor records what a monitor was started with, so the UI can
-// show it and a restart can reproduce it.
-type monitorParams struct{ proto.OpenParams }
