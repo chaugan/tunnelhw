@@ -98,6 +98,7 @@ type DeviceMeta struct {
 	FingerprintConfidence string `json:"fingerprint_confidence"`
 	ControlLinesAllowed   bool   `json:"control_lines_allowed"`
 	AssertLinesOnOpen     bool   `json:"assert_lines_on_open"`
+	Monitored             bool   `json:"monitored"`
 }
 
 // Device is one exposed device as announced to the relay. ID is the

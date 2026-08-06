@@ -21,6 +21,14 @@ type DeviceRecord struct {
 	// AssertLinesOnOpen raises DTR/RTS at open. Off by default because it
 	// resets auto-reset boards; some USB-CDC devices need it to transmit.
 	AssertLinesOnOpen bool `json:"assert_lines_on_open,omitempty"`
+	// Monitored keeps the port open continuously and records output, so that
+	// opening a session does not reopen the port. On hardware that resets when
+	// the port is opened, this is the difference between one reset and one per
+	// access. It also preserves output emitted between sessions.
+	Monitored bool `json:"monitored,omitempty"`
+	// MonitorBaud is the line rate monitoring uses, since no session is
+	// present to supply one.
+	MonitorBaud int `json:"monitor_baud,omitempty"`
 }
 
 // Config is the agent's persisted state. Note there is deliberately no

@@ -434,3 +434,81 @@ func TestVanishedDeviceEndsItsSession(t *testing.T) {
 		t.Fatal("a vanished device must not present as a timeout; that is what made a broken tool look like a silent device")
 	}
 }
+
+// countingPort records how many times the hardware was actually opened. On
+// Windows the port is opened by CreateFile before any line settings apply, so
+// the driver asserts DTR and a board wired for auto-reset reboots. The agent
+// cannot prevent that, so the fix is to open once and keep it open: sessions
+// attach to the monitor instead of reopening.
+func TestMonitorOpensThePortOnce(t *testing.T) {
+	store, _ := auth.Open(t.TempDir())
+	hub := relay.NewHub(store)
+	broker := relayapi.NewBroker(hub)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.HandleWS)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tok, _, _ := store.MintPairingToken()
+	agentID, cred, err := store.ExchangePairing(tok, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	cfg, _ := config.Load(dir)
+	ports := []serialdev.PortInfo{{Path: "/dev/ttyMON", IsUSB: true, VID: "303a", PID: "1001", SerialNumber: "MON1"}}
+	var mu sync.Mutex
+	opens := 0
+	var last *fakePort
+	core := agent.New(dir, cfg,
+		func() ([]serialdev.PortInfo, error) { return ports, nil },
+		func(string, proto.OpenParams) (serialdev.Port, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			opens++ // each of these is a CreateFile, and so a reset
+			last = newFakePort()
+			return last, nil
+		})
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	dev := core.UIDevices()[0]
+	if err := core.SetExposed(dev.UUID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	tun := &agent.Tunnel{Core: core, URL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws",
+		AgentID: agentID, Credential: cred, InsecureDev: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tun.Run(ctx)
+	waitFor(t, "connected", func() bool { s, _ := tun.Status(); return s == "connected" })
+	waitFor(t, "announced", func() bool { return len(hub.Devices(nil)) == 1 })
+
+	if err := core.SetMonitored(dev.UUID, true, 115200); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	afterMonitor := opens
+	mu.Unlock()
+	if afterMonitor != 1 {
+		t.Fatalf("starting monitoring should open the port exactly once, got %d", afterMonitor)
+	}
+
+	// Three open/close cycles must not touch the hardware again.
+	for i := 0; i < 3; i++ {
+		s, err := broker.Open(dev.ID, proto.OpenParams{Baud: 115200}, nil, "owner")
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		broker.Close(s.ID)
+		waitFor(t, "claim released", func() bool { return len(core.Sessions()) == 0 })
+	}
+	mu.Lock()
+	total := opens
+	mu.Unlock()
+	if total != 1 {
+		t.Fatalf("the port was opened %d times; every open past the first resets the board", total)
+	}
+}

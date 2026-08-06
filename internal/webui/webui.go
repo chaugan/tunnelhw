@@ -211,6 +211,8 @@ func (s *Server) deviceToggle(w http.ResponseWriter, r *http.Request) {
 		Exposed           *bool `json:"exposed"`
 		AllowControlLines *bool `json:"allow_control_lines"`
 		AssertLinesOnOpen *bool `json:"assert_lines_on_open"`
+		Monitored         *bool `json:"monitored"`
+		MonitorBaud       int   `json:"monitor_baud"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad JSON body")
@@ -231,6 +233,12 @@ func (s *Server) deviceToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AssertLinesOnOpen != nil {
 		if err := s.core.SetAssertLinesOnOpen(id, *req.AssertLinesOnOpen); err != nil {
+			jsonErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+	}
+	if req.Monitored != nil {
+		if err := s.core.SetMonitored(id, *req.Monitored, req.MonitorBaud); err != nil {
 			jsonErr(w, http.StatusNotFound, err.Error())
 			return
 		}

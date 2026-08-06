@@ -212,6 +212,11 @@ function deviceRow(d) {
   tr.appendChild(mkToggle(d.exposed, "exposed", "Expose this device to the relay"));
   tr.appendChild(mkToggle(d.meta.control_lines_allowed, "allow_control_lines",
     "Allow DTR/RTS and baud changes, which can reset boards or enter bootloaders"));
+  tr.appendChild(mkToggle(d.meta.monitored, "monitored",
+    "Hold the port open and record output continuously. Sessions then attach " +
+    "instead of reopening, so hardware that resets when the port is opened " +
+    "resets once here rather than on every access. Output between sessions is " +
+    "kept and replayed to the next one."));
   tr.appendChild(mkToggle(d.meta.assert_lines_on_open, "assert_lines_on_open",
     "Raise DTR/RTS when the port is opened. Off by default because it resets " +
     "boards wired for auto-reset. Turn on only for devices that stay silent " +

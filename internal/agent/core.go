@@ -38,6 +38,7 @@ type Core struct {
 	devices  map[string]*deviceState // key: fingerprint key
 	sessions map[string]*Session     // key: session id
 	claims   map[string]string       // device uuid -> session id
+	monitors map[string]*monitor     // device uuid -> continuous reader
 
 	activity *Activity
 
@@ -56,6 +57,7 @@ func New(dir string, cfg *config.Config, enumerate func() ([]serialdev.PortInfo,
 		devices:   map[string]*deviceState{},
 		sessions:  map[string]*Session{},
 		claims:    map[string]string{},
+		monitors:  map[string]*monitor{},
 		activity:  newActivity(256),
 	}
 }
@@ -153,10 +155,18 @@ func (c *Core) Rescan() error {
 	// ever, which is indistinguishable from a device that simply has nothing
 	// to say. That is the exact condition an operator is usually diagnosing,
 	// so silence here destroys the evidence.
-	var orphaned []string
+	var orphaned, stopMon, startMon []string
 	for key, ds := range c.devices {
 		if present[key] {
+			// A monitored device that is present but not being monitored needs
+			// one started: either it has just appeared, or the agent restarted.
+			if ds.Rec.Monitored && c.monitors[ds.Rec.UUID] == nil {
+				startMon = append(startMon, ds.Rec.UUID)
+			}
 			continue
+		}
+		if c.monitors[ds.Rec.UUID] != nil {
+			stopMon = append(stopMon, ds.Rec.UUID)
 		}
 		if ds.Online {
 			c.activity.Add("info", fmt.Sprintf("device %s disappeared (unplugged, reset, or USB re-enumeration)", ds.Rec.WordID))
@@ -177,6 +187,12 @@ func (c *Core) Rescan() error {
 	// CloseSession takes the lock itself, so this happens unlocked.
 	for _, sid := range orphaned {
 		c.CloseSession(sid, "device disappeared")
+	}
+	for _, uuid := range stopMon {
+		c.stopMonitor(uuid, "device disappeared")
+	}
+	for _, uuid := range startMon {
+		c.startMonitor(uuid)
 	}
 	c.changed()
 	return nil
@@ -248,6 +264,81 @@ func (c *Core) ReleaseDevice(uuid, reason string) bool {
 // they will transmit, which is why it exists at all.
 func (c *Core) SetAssertLinesOnOpen(uuid string, on bool) error {
 	return c.updateRec(uuid, func(r *config.DeviceRecord) { r.AssertLinesOnOpen = on })
+}
+
+// SetMonitored turns continuous monitoring on or off for a device. While it is
+// on the agent holds the port open and records output, so sessions attach
+// instead of reopening. On hardware that resets when the port is opened, that
+// turns one reset per access into one reset when monitoring starts.
+func (c *Core) SetMonitored(uuid string, on bool, baud int) error {
+	if err := c.updateRec(uuid, func(r *config.DeviceRecord) {
+		r.Monitored = on
+		if baud > 0 {
+			r.MonitorBaud = baud
+		}
+	}); err != nil {
+		return err
+	}
+	if on {
+		return c.startMonitor(uuid)
+	}
+	c.stopMonitor(uuid, "monitoring turned off")
+	return nil
+}
+
+// startMonitor opens the port and begins recording. Safe to call repeatedly.
+func (c *Core) startMonitor(uuid string) error {
+	c.mu.Lock()
+	if _, running := c.monitors[uuid]; running {
+		c.mu.Unlock()
+		return nil
+	}
+	_, ds := c.byUUIDLocked(uuid)
+	if ds == nil || !ds.Online {
+		c.mu.Unlock()
+		return nil // it will start on the rescan that finds the device
+	}
+	path, baud := ds.Info.Path, ds.Rec.MonitorBaud
+	wordID, assert := ds.Rec.WordID, ds.Rec.AssertLinesOnOpen
+	if baud <= 0 {
+		baud = 115200
+	}
+	c.mu.Unlock()
+
+	port, err := c.open(path, proto.OpenParams{Baud: baud, AssertLinesOnOpen: assert})
+	if err != nil {
+		c.activity.Add("error", fmt.Sprintf("monitor for %s could not open the port: %v", wordID, err))
+		return err
+	}
+	c.mu.Lock()
+	if _, raced := c.monitors[uuid]; raced {
+		c.mu.Unlock()
+		port.Close()
+		return nil
+	}
+	c.monitors[uuid] = newMonitor(port)
+	c.mu.Unlock()
+	c.activity.Add("info", fmt.Sprintf("monitoring %s at %d baud; the port stays open, so sessions no longer reopen it", wordID, baud))
+	c.changed()
+	return nil
+}
+
+// stopMonitor releases the port.
+func (c *Core) stopMonitor(uuid, reason string) {
+	c.mu.Lock()
+	m, ok := c.monitors[uuid]
+	delete(c.monitors, uuid)
+	var word string
+	if _, ds := c.byUUIDLocked(uuid); ds != nil {
+		word = ds.Rec.WordID
+	}
+	c.mu.Unlock()
+	if !ok {
+		return
+	}
+	m.Close()
+	c.activity.Add("info", fmt.Sprintf("stopped monitoring %s (%s)", word, reason))
+	c.changed()
 }
 
 // SetControlLines toggles the privileged control-lines/baud grant.
@@ -326,6 +417,7 @@ func (c *Core) ExposedDevices() []proto.Device {
 				FingerprintConfidence: ds.FP.Confidence,
 				ControlLinesAllowed:   ds.Rec.AllowControlLines,
 				AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
+				Monitored:             ds.Rec.Monitored,
 			},
 		})
 	}
@@ -363,6 +455,7 @@ func (c *Core) UIDevices() []UIDevice {
 					FingerprintConfidence: ds.FP.Confidence,
 					ControlLinesAllowed:   ds.Rec.AllowControlLines,
 					AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
+					Monitored:             ds.Rec.Monitored,
 				},
 			},
 			Exposed: ds.Rec.Exposed,
@@ -452,7 +545,20 @@ func (c *Core) OpenSession(deviceID string, params proto.OpenParams) (*Session, 
 	c.claims[devUUID] = sid
 	c.mu.Unlock()
 
-	port, err := c.open(path, params)
+	// If the device is monitored the port is already open. Attaching to it
+	// avoids a second CreateFile, which is what resets hardware whose reset
+	// line is driven by DTR. The backlog is replayed so the session can see
+	// what was said before it existed.
+	c.mu.Lock()
+	mon := c.monitors[devUUID]
+	c.mu.Unlock()
+	var port serialdev.Port
+	var err error
+	if mon != nil {
+		port = mon.attach(true)
+	} else {
+		port, err = c.open(path, params)
+	}
 	if err != nil {
 		c.mu.Lock()
 		delete(c.claims, devUUID)
@@ -503,6 +609,8 @@ func (c *Core) CloseSession(sid, reason string) {
 	if !ok {
 		return
 	}
+	// For a monitored device this detaches the subscriber and leaves the port
+	// open; closing it would mean the next open reopens, and reopening resets.
 	s.Port.Close()
 	in, out := s.Counters()
 	c.activity.Add("close", fmt.Sprintf("session %s on %s closed (%s): %dB in / %dB out", short(sid), s.DeviceID, reason, in, out))
