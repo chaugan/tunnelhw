@@ -146,6 +146,7 @@ type readReq struct {
 	TimeoutMs int    `json:"timeout_ms"`
 	MaxBytes  int    `json:"max_bytes"`
 	Delimiter string `json:"delimiter"` // e.g. "\n"; empty = any data
+	Lines     bool   `json:"lines"`     // whole lines only, partial tail held over
 }
 
 func (a *API) read(w http.ResponseWriter, r *http.Request, tok *auth.APIToken) {
@@ -157,7 +158,12 @@ func (a *API) read(w http.ResponseWriter, r *http.Request, tok *auth.APIToken) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	res := s.Read(time.Duration(req.TimeoutMs)*time.Millisecond, req.MaxBytes, []byte(req.Delimiter))
+	res := s.ReadWith(ReadOptions{
+		Timeout:   time.Duration(req.TimeoutMs) * time.Millisecond,
+		MaxBytes:  req.MaxBytes,
+		Delimiter: []byte(req.Delimiter),
+		Lines:     req.Lines,
+	})
 	out := map[string]any{
 		"data_b64":  base64.StdEncoding.EncodeToString(res.Data),
 		"timed_out": res.TimedOut,

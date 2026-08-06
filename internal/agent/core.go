@@ -128,7 +128,6 @@ func (c *Core) Rescan() error {
 		return err
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	dirty := false
 	present := map[string]bool{}
@@ -139,6 +138,7 @@ func (c *Core) Rescan() error {
 		if !known {
 			wordID, err := names.Generate(c.wordIDTakenLocked)
 			if err != nil {
+				c.mu.Unlock()
 				return err
 			}
 			rec = config.DeviceRecord{UUID: uuid.NewString(), WordID: wordID}
@@ -148,15 +148,35 @@ func (c *Core) Rescan() error {
 		}
 		c.devices[fp.Key] = &deviceState{FP: fp, Info: p, Rec: rec, Online: true}
 	}
+	// A device that has gone takes its session with it. Leaving the session
+	// open strands the consumer on a dead handle: reads return nothing for
+	// ever, which is indistinguishable from a device that simply has nothing
+	// to say. That is the exact condition an operator is usually diagnosing,
+	// so silence here destroys the evidence.
+	var orphaned []string
 	for key, ds := range c.devices {
-		if !present[key] {
-			ds.Online = false
+		if present[key] {
+			continue
+		}
+		if ds.Online {
+			c.activity.Add("info", fmt.Sprintf("device %s disappeared (unplugged, reset, or USB re-enumeration)", ds.Rec.WordID))
+		}
+		ds.Online = false
+		if sid, held := c.claims[ds.Rec.UUID]; held {
+			orphaned = append(orphaned, sid)
 		}
 	}
 	if dirty {
 		if err := config.Save(c.dir, c.cfg); err != nil {
+			c.mu.Unlock()
 			return err
 		}
+	}
+	c.mu.Unlock()
+
+	// CloseSession takes the lock itself, so this happens unlocked.
+	for _, sid := range orphaned {
+		c.CloseSession(sid, "device disappeared")
 	}
 	c.changed()
 	return nil
@@ -410,9 +430,22 @@ func (c *Core) OpenSession(deviceID string, params proto.OpenParams) (*Session, 
 	}
 	path := target.Info.Path
 	devUUID := target.Rec.UUID
-	// Line policy is the operator's, never the consumer's: overwrite whatever
-	// arrived over the wire.
-	params.AssertLinesOnOpen = target.Rec.AssertLinesOnOpen
+	// Resolve the control lines. Asking for them to stay low is always
+	// honoured: observing a device must never be able to change it. Asking to
+	// raise them is a privileged action, because on an auto-reset board it is
+	// a reset.
+	assert := target.Rec.AssertLinesOnOpen
+	wantsHigh := (params.DTR != nil && *params.DTR) || (params.RTS != nil && *params.RTS)
+	wantsLow := (params.DTR != nil && !*params.DTR) || (params.RTS != nil && !*params.RTS)
+	switch {
+	case wantsHigh && !target.Rec.AllowControlLines:
+		return fail("raising DTR/RTS on "+deviceID+" needs the device's control-lines grant", false, "")
+	case wantsHigh:
+		assert = true
+	case wantsLow:
+		assert = false
+	}
+	params.AssertLinesOnOpen = assert
 	// Claim before releasing the lock so a concurrent open sees busy while
 	// the (slow) hardware open happens outside the lock.
 	sid := uuid.NewString()

@@ -152,6 +152,14 @@ type OpenParams struct {
 	Parity   string `json:"parity,omitempty"`    // none|odd|even (default none)
 	StopBits string `json:"stop_bits,omitempty"` // 1|1.5|2 (default 1)
 
+	// DTR and RTS state the caller's intent for the control lines at open.
+	// nil means "use the device's policy". false is always honoured, because
+	// leaving the lines alone can never disturb hardware. true requires the
+	// device's control-lines grant, since raising them resets auto-reset
+	// boards.
+	DTR *bool `json:"dtr,omitempty"`
+	RTS *bool `json:"rts,omitempty"`
+
 	// AssertLinesOnOpen raises DTR and RTS as the port opens. It is set by
 	// the agent from per-device policy and is deliberately NOT on the wire
 	// (`json:"-"`): raising these lines resets boards wired for auto-reset,

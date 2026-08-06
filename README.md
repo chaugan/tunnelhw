@@ -164,6 +164,10 @@ behaviour.
 - **Control lines are a separate grant.** `set_params` is refused unless you
   enable **Control lines** for that device, because DTR/RTS can reset a board
   or drop it into its bootloader.
+- **A vanished device ends its session.** If the board is unplugged, or
+  re-enumerates after a firmware flash, the session closes and reads report
+  `eof`. Without that, reads return nothing for ever, which is impossible to
+  tell apart from a device that simply has nothing to say.
 - **Opening a device does not touch its control lines.** DTR and RTS stay low,
   so simply reading from a board wired for auto-reset (every ESP32 and Arduino
   dev board) will not reboot it. Some USB-CDC firmware stays silent until the

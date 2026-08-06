@@ -365,3 +365,72 @@ func TestKillSwitchStaysOff(t *testing.T) {
 	waitFor(t, "reconnected after resume", func() bool { s, _ := tun.Status(); return s == "connected" })
 	waitFor(t, "re-announced after resume", func() bool { return len(hub.Devices(nil)) == 1 })
 }
+
+// A device that vanishes (unplug, or the USB re-enumeration that follows a
+// firmware flash) must take its session with it. Otherwise the consumer is
+// stranded on a dead handle where reads return nothing for ever, which looks
+// exactly like a device that has nothing to say. That ambiguity destroys the
+// evidence an operator is usually trying to gather.
+func TestVanishedDeviceEndsItsSession(t *testing.T) {
+	store, _ := auth.Open(t.TempDir())
+	hub := relay.NewHub(store)
+	broker := relayapi.NewBroker(hub)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.HandleWS)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tok, _, _ := store.MintPairingToken()
+	agentID, cred, err := store.ExchangePairing(tok, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	cfg, _ := config.Load(dir)
+	present := []serialdev.PortInfo{{Path: "/dev/ttyGONE", IsUSB: true, VID: "303a", PID: "1001", SerialNumber: "FLASH1"}}
+	var mu sync.Mutex
+	core := agent.New(dir, cfg,
+		func() ([]serialdev.PortInfo, error) { mu.Lock(); defer mu.Unlock(); return present, nil },
+		func(string, proto.OpenParams) (serialdev.Port, error) { return newFakePort(), nil })
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	dev := core.UIDevices()[0]
+	if err := core.SetExposed(dev.UUID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	tun := &agent.Tunnel{Core: core, URL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws",
+		AgentID: agentID, Credential: cred, InsecureDev: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tun.Run(ctx)
+	waitFor(t, "connected", func() bool { s, _ := tun.Status(); return s == "connected" })
+	waitFor(t, "announced", func() bool { return len(hub.Devices(nil)) == 1 })
+
+	sess, err := broker.Open(dev.ID, proto.OpenParams{Baud: 115200}, nil, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The board re-enumerates: same fingerprint, but gone for this scan.
+	mu.Lock()
+	present = nil
+	mu.Unlock()
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, "session ended with the device", func() bool { return len(core.Sessions()) == 0 })
+
+	// The consumer must be able to tell "the tool lost the device" from "the
+	// device is quiet": a bounded read now reports EOF rather than timing out.
+	res := sess.Read(3*time.Second, 256, nil)
+	if !res.EOF {
+		t.Fatalf("read after the device vanished must report EOF, got %+v", res)
+	}
+	if res.TimedOut {
+		t.Fatal("a vanished device must not present as a timeout; that is what made a broken tool look like a silent device")
+	}
+}

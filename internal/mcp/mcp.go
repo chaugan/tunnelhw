@@ -125,7 +125,10 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 		Description: "Open an exclusive session on a device and return its session_id for " +
 			"read/write/set_params/drain/close_session." + exclusiveNote +
 			" Serial parameters default to 115200 8-N-1; pass baud/data_bits/parity/stop_bits " +
-			"to override at open." + sessionResetNote +
+			"to override at open. Opening does NOT touch the DTR/RTS control lines, so " +
+			"attaching to a board wired for auto-reset (most ESP32 and Arduino boards) " +
+			"will not reboot it and will not disturb the state you are trying to observe. " +
+			"Pass dtr/rts false to state that intent explicitly." + sessionResetNote +
 			" Always call close_session when done: sessions are not garbage-collected while " +
 			"the agent stays connected, and a forgotten session keeps the device busy for everyone.",
 	}, openDevice(b, g))
@@ -134,7 +137,10 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 		Name: "read",
 		Description: "Read buffered output from an open session. Bounded and never " +
 			"indefinitely blocking: waits up to timeout_ms (default 2000, max 60000) for " +
-			"data, returns at most max_bytes (default 4096, max 262144). With delimiter " +
+			"data, returns at most max_bytes (default 4096, max 262144; timeout_ms is capped " +
+			"at 55000 so the answer always beats a client's own 60s call limit). Set lines " +
+			"true for log-shaped output to get only whole lines, with any partial tail " +
+			"held over. With delimiter " +
 			"set (e.g. \"\\n\"), returns once a chunk ending in the delimiter is available, " +
 			"or whatever has arrived when the timeout fires; partial reads are normal, " +
 			"check 'timed_out' and call read again for more. 'text' is present only when " +
@@ -147,8 +153,10 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 		Description: "Write bytes to an open session. encoding 'utf8' (default) sends the " +
 			"string as-is; use 'base64' for binary payloads. Writes above 262144 bytes are " +
 			"rejected. Writes are never buffered across a disconnect: if the agent " +
-			"reconnects mid-operation the session is gone and nothing is replayed." +
-			sessionResetNote,
+			"reconnects mid-operation the session is gone and nothing is replayed. " +
+			"Note that if the device's own firmware is reading the same UART it will " +
+			"consume replies before you see them, so writing is not a reliable probe " +
+			"on a device that is busy talking to itself." + sessionResetNote,
 	}, writeTool(b, g))
 
 	sdk.AddTool(s, &sdk.Tool{
@@ -245,6 +253,8 @@ type openIn struct {
 	DataBits int    `json:"data_bits,omitempty" jsonschema:"data bits; default 8"`
 	Parity   string `json:"parity,omitempty" jsonschema:"none, odd, or even; default none"`
 	StopBits string `json:"stop_bits,omitempty" jsonschema:"1, 1.5, or 2; default 1"`
+	DTR      *bool  `json:"dtr,omitempty" jsonschema:"control the DTR line at open; false guarantees the line is not raised, which is what you want to observe a device without disturbing it"`
+	RTS      *bool  `json:"rts,omitempty" jsonschema:"control the RTS line at open; false guarantees the line is not raised"`
 }
 
 type openOut struct {
@@ -264,6 +274,8 @@ func openDevice(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[openIn, openOut]
 			DataBits: in.DataBits,
 			Parity:   in.Parity,
 			StopBits: in.StopBits,
+			DTR:      in.DTR,
+			RTS:      in.RTS,
 		}, g.agents, g.owner)
 		if err != nil {
 			return nil, openOut{}, err
@@ -277,6 +289,7 @@ type readIn struct {
 	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"how long to wait for data in milliseconds; default 2000, max 60000"`
 	MaxBytes  int    `json:"max_bytes,omitempty" jsonschema:"maximum bytes to return; default 4096, max 262144"`
 	Delimiter string `json:"delimiter,omitempty" jsonschema:"return once data ending in this string is available, e.g. \"\\n\""`
+	Lines     bool   `json:"lines,omitempty" jsonschema:"return only whole lines, holding any partial trailing line for the next call; best for log-shaped output"`
 }
 
 type readOut struct {
@@ -293,7 +306,12 @@ func readTool(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[readIn, readOut] {
 		if err != nil {
 			return nil, readOut{}, err
 		}
-		res := s.Read(time.Duration(in.TimeoutMs)*time.Millisecond, in.MaxBytes, []byte(in.Delimiter))
+		res := s.ReadWith(relayapi.ReadOptions{
+			Timeout:   time.Duration(in.TimeoutMs) * time.Millisecond,
+			MaxBytes:  in.MaxBytes,
+			Delimiter: []byte(in.Delimiter),
+			Lines:     in.Lines,
+		})
 		out := readOut{
 			DataB64:  base64.StdEncoding.EncodeToString(res.Data),
 			N:        len(res.Data),

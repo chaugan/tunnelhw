@@ -31,3 +31,5 @@ dist/
 # Bare `go build ./cmd/...` drops binaries here
 /agent
 /relay
+
+_tunnelhw-mcp-feedback.md

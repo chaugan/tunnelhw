@@ -19,7 +19,10 @@ import (
 const (
 	MaxReadBytes   = 256 * 1024
 	DefaultReadMax = 4096
-	MaxReadTimeout = 60 * time.Second
+	// 55s, not 60: MCP clients commonly cap a call at 60s, so a read that
+	// waits the full minute loses the race with the transport and the caller
+	// sees a timeout error instead of a clean "nothing was said" answer.
+	MaxReadTimeout = 55 * time.Second
 	DefaultTimeout = 2 * time.Second
 	MaxWriteBytes  = 256 * 1024
 	sessionBufCap  = 1 << 20 // per-session receive buffer; backpressure beyond
@@ -145,10 +148,32 @@ type ReadResult struct {
 	EOF      bool
 }
 
+// ReadOptions selects how a read decides it has enough.
+type ReadOptions struct {
+	Timeout   time.Duration
+	MaxBytes  int
+	Delimiter []byte
+	// Lines returns only whole lines, keeping any partial trailing line in
+	// the buffer for the next call. Log-shaped devices otherwise split mid
+	// line across reads, which costs the caller tokens and invites mistakes.
+	Lines bool
+}
+
 // Read returns buffered device output. It blocks until at least one byte is
 // available (or, with delimiter, until the delimiter arrives), the timeout
 // elapses, or the session ends. Never indefinite: timeout is clamped.
 func (s *Session) Read(timeout time.Duration, maxBytes int, delimiter []byte) ReadResult {
+	return s.ReadWith(ReadOptions{Timeout: timeout, MaxBytes: maxBytes, Delimiter: delimiter})
+}
+
+// ReadWith is Read with the full option set.
+func (s *Session) ReadWith(o ReadOptions) ReadResult {
+	timeout, maxBytes, delimiter := o.Timeout, o.MaxBytes, o.Delimiter
+	if o.Lines {
+		// Whole lines are just a delimiter read that keeps consuming while
+		// more complete lines are already buffered.
+		delimiter = []byte("\n")
+	}
 	if maxBytes <= 0 {
 		maxBytes = DefaultReadMax
 	}
@@ -171,6 +196,17 @@ func (s *Session) Read(timeout time.Duration, maxBytes int, delimiter []byte) Re
 	defer s.mu.Unlock()
 	for {
 		if have := s.takeLocked(maxBytes, delimiter); have != nil {
+			if o.Lines {
+				// Keep taking whole lines while they are already buffered, so
+				// a busy log arrives in one read rather than one line at a time.
+				for len(have) < maxBytes {
+					more := s.takeLocked(maxBytes-len(have), delimiter)
+					if more == nil {
+						break
+					}
+					have = append(have, more...)
+				}
+			}
 			return ReadResult{Data: have}
 		}
 		if s.closed {
