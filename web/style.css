@@ -43,7 +43,7 @@ section {
 .dim { color: var(--dim); }
 .small { font-size: .85rem; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; }
-.hidden { display: none; }
+.hidden { display: none !important; }
 p { margin: .25rem 0 .75rem; }
 
 button {
@@ -76,6 +76,12 @@ input[type="text"], input[type="password"] {
 input:focus { outline: 1px solid var(--accent); }
 
 #pair-form { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+/* Full-width rows: mode choice, then the fields that mode needs. */
+#pair-form > .modes,
+#pair-form > #mode-direct,
+#pair-form > #mode-ssh { flex: 1 0 100%; }
+#mode-direct, #mode-ssh { display: flex; flex-wrap: wrap; gap: .5rem; }
+#mode-direct > p, #mode-ssh > p { flex: 1 0 100%; margin: .15rem 0 0; }
 #pair-url { flex: 2 1 16rem; }
 #pair-token { flex: 2 1 12rem; }
 #pair-name { flex: 1 1 8rem; }
@@ -95,12 +101,24 @@ input:focus { outline: 1px solid var(--accent); }
 table { width: 100%; border-collapse: collapse; }
 th, td {
   text-align: left;
-  padding: .45rem .6rem;
+  padding: .45rem .5rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
+/* Boolean columns: the header is the widest part, so centre and tighten. */
+th.c, td.c { text-align: center; width: 1%; padding-left: .35rem; padding-right: .35rem; }
+/* The product string is the one field that can be arbitrarily long, so it is
+   the one allowed to give way rather than pushing the table wider. */
+td.product {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+}
+td.actions { width: 1%; }
 th { color: var(--dim); font-weight: 600; font-size: .8rem; text-transform: uppercase; }
 td.wordid { font-weight: 700; color: var(--accent); }
+td.wordid .badge { margin-left: .4rem; font-weight: 600; }
 td.path { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; }
 
 .badge {
@@ -153,3 +171,11 @@ td.actions { white-space: nowrap; }
 td.actions button + button { margin-left: .4rem; }
 
 button.primary { background: var(--ok, #2ea043); color: #fff; }
+
+/* Narrow windows: give back width from the two fields that can afford it,
+   so the table keeps fitting instead of growing its own scrollbar. */
+@media (max-width: 1050px) {
+  th, td { padding: .4rem .35rem; }
+  td.product { max-width: 12ch; }
+  td.path { font-size: .8rem; }
+}

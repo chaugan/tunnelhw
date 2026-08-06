@@ -180,27 +180,31 @@ async function regenerate(uuid) {
 
 function deviceRow(d) {
   const tr = el("tr");
-  tr.appendChild(el("td", "wordid", d.id));
-  tr.appendChild(el("td", "path", d.meta.path || "n/a"));
-  tr.appendChild(el("td", "", d.meta.transport || "n/a"));
 
+  // Name and identity confidence belong together: the badge qualifies the name.
+  const tdName = el("td", "wordid");
+  tdName.appendChild(document.createTextNode(d.id));
   const conf = d.meta.fingerprint_confidence || "weak";
-  const badge = el("span", "badge badge-" + conf, conf);
-  if (conf === "weak") {
-    badge.title = "Weak fingerprint: this port may be renumbered when devices are added or removed, so its identity can shift across replugs.";
+  if (conf !== "strong") {
+    const badge = el("span", "badge badge-" + conf, conf);
+    badge.title = conf === "weak"
+      ? "Weak fingerprint: this port can be renumbered when devices are added or removed, so the name may not follow the same physical device across replugs."
+      : "Medium confidence: a fixed port whose identity does not move.";
+    tdName.appendChild(badge);
   }
-  const tdConf = el("td");
-  tdConf.appendChild(badge);
-  tr.appendChild(tdConf);
+  tr.appendChild(tdName);
 
-  tr.appendChild(el("td", "", d.meta.product || "n/a"));
+  // Path and transport are one fact about where the device is attached.
+  tr.appendChild(el("td", "path", (d.meta.path || "n/a") +
+    (d.meta.transport ? " \u00b7 " + d.meta.transport : "")));
+  tr.appendChild(el("td", "product", d.meta.product || "n/a"));
 
   const state = !d.online ? ["offline", "state-offline"]
     : d.busy ? ["busy", "state-busy"] : ["online", "state-online"];
   tr.appendChild(el("td", state[1], state[0]));
 
   const mkToggle = (checked, field, title) => {
-    const td = el("td");
+    const td = el("td", "c");
     const cb = el("input", "toggle");
     cb.type = "checkbox";
     cb.checked = checked;
@@ -209,30 +213,26 @@ function deviceRow(d) {
     td.appendChild(cb);
     return td;
   };
-  tr.appendChild(mkToggle(d.exposed, "exposed", "Expose this device to the relay"));
-  tr.appendChild(mkToggle(d.meta.control_lines_allowed, "allow_control_lines",
-    "Allow DTR/RTS and baud changes, which can reset boards or enter bootloaders"));
+  tr.appendChild(mkToggle(d.exposed, "exposed",
+    "Expose this device to the relay. Nothing is exposed by default."));
   tr.appendChild(mkToggle(d.meta.monitored, "monitored",
-    "Hold the port open and record output continuously. Sessions then attach " +
-    "instead of reopening, so hardware that resets when the port is opened " +
-    "resets once here rather than on every access. Output between sessions is " +
-    "kept and replayed to the next one."));
+    "Hold the port open and record output continuously. Sessions attach to it " +
+    "instead of reopening, and output between sessions is replayed to the next one."));
+  tr.appendChild(mkToggle(d.meta.control_lines_allowed, "allow_control_lines",
+    "Allow DTR/RTS and baud changes, which can reset boards or enter bootloaders."));
   tr.appendChild(mkToggle(d.meta.assert_lines_on_open, "assert_lines_on_open",
     "Raise DTR/RTS when the port is opened. Off by default because it resets " +
-    "boards wired for auto-reset. Turn on only for devices that stay silent " +
-    "until the host raises DTR."));
+    "boards wired for auto-reset."));
 
   const tdBtn = el("td", "actions");
   if (d.busy) {
-    // The LLM is holding this port right now, so nothing local can open it.
-    // Release hands it straight back without touching the tunnel.
     const rel = el("button", "danger", "Release");
     rel.title = "Force-close the session holding this device and hand the port " +
       "back for local use. The device stays exposed.";
     rel.addEventListener("click", () => release(d.uuid));
     tdBtn.appendChild(rel);
   }
-  const btn = el("button", "ghost", "Regenerate");
+  const btn = el("button", "ghost", "Rename");
   btn.title = "Assign a fresh word-ID";
   btn.addEventListener("click", () => regenerate(d.uuid));
   tdBtn.appendChild(btn);

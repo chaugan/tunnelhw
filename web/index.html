@@ -63,8 +63,12 @@
   <div class="tablewrap">
     <table id="devices">
       <thead><tr>
-        <th>ID</th><th>Path</th><th>Transport</th><th>Identity</th><th>Product</th>
-        <th>State</th><th>Exposed</th><th>Monitor</th><th>Control lines</th><th>DTR on open</th><th></th>
+        <th>Device</th><th>Port</th><th>Product</th><th>State</th>
+        <th class="c" title="Expose this device to the relay">Exposed</th>
+        <th class="c" title="Hold the port open and record output">Monitor</th>
+        <th class="c" title="Allow DTR/RTS and baud changes">Ctrl</th>
+        <th class="c" title="Raise DTR/RTS when the port is opened">DTR</th>
+        <th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
