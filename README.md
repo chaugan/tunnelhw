@@ -78,12 +78,23 @@ Open <http://127.0.0.1:8787> and:
 3. Toggle **Exposed** on the devices the LLM may use. Each gets its word ID.
 
 ![The TunnelHW agent's localhost control panel: relay status, the device list
-with per-device Exposed and Control-lines toggles, live sessions, and the
-activity log](docs/images/web-ui.png)
+with its per-device switches, live sessions, and the activity log](docs/images/web-ui.png)
 
 Everything the LLM can reach is decided here: a device the LLM may use is one
 you ticked. The activity log records every open, close and control-line change.
 Note that byte counts are logged, never payloads.
+
+Each device has four independent switches:
+
+| Switch | What it does |
+|---|---|
+| **Exposed** | Announce this device to the relay. Off by default; nothing is exposed until you say so. |
+| **Monitor** | Hold the port open and record output continuously. Sessions attach to that stream instead of reopening, and output between sessions is replayed to the next one. |
+| **Ctrl** | Allow `set_params` to change baud or move DTR/RTS mid-session. Refused without it, because those can reset a board or enter its bootloader. |
+| **DTR** | Raise DTR/RTS when the port is opened. Off by default; only needed for firmware that stays silent until the host raises DTR. |
+
+**Release** force-closes whatever session holds a device, handing the port back
+without disturbing the tunnel. **Rename** assigns a fresh word ID.
 
 ### 3. Connect the LLM
 
@@ -143,8 +154,8 @@ behaviour.
 | Tool | Purpose |
 |---|---|
 | `list_devices` | word ID, transport, online/busy, fingerprint confidence |
-| `open_device` | claim a device, returns a `session_id` |
-| `read` | bounded read: `timeout_ms`, `max_bytes`, optional `delimiter` |
+| `open_device` | claim a device, returns a `session_id`; `dtr`/`rts` state your intent for the control lines |
+| `read` | bounded read: `timeout_ms` (max 55000), `max_bytes`, optional `delimiter`, `lines` for whole lines only |
 | `write` | send data, `utf8` or `base64` |
 | `set_params` | change baud / toggle DTR / RTS mid-session |
 | `drain` | wait for buffered output to reach the hardware |
@@ -152,8 +163,10 @@ behaviour.
 
 - **Devices are exclusive.** One session at a time; a second `open_device`
   fails with a `busy` error naming the holder.
-- **The port is only held during a session.** When no session is open the agent
-  holds nothing, so your own terminal or IDE can use the device normally.
+- **Without monitoring, the port is only held during a session.** When no
+  session is open the agent holds nothing, so your own terminal or IDE can use
+  the device normally. Turning **Monitor** on reverses that deliberately: the
+  agent then keeps the port for as long as monitoring is enabled.
 - **You can take a device back at any time.** **Release** in the web UI
   force-closes the session holding one device, leaving the tunnel and every
   other device untouched. Hiding a device also ends its session. The **kill
