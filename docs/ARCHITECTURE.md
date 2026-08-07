@@ -351,7 +351,14 @@ the server registers is:
   deterministic `busy` error names the holder. Defaults 115200 8-N-1.
 - `read {session_id, timeout_ms?, max_bytes?, delimiter?}`: bounded, never
   indefinitely blocking; returns `text` when the bytes are valid UTF-8,
-  `data_b64` always, plus `timed_out` and `eof`; partial reads documented.
+  `data_b64` always, plus `timed_out`, `eof`, and `device_reset_detected`;
+  partial reads documented. The reset flag is derived from the agent's
+  re-enumeration count, carried in the device announce, and is reported to the
+  session that was open when it happened, then cleared. Resets that pile up
+  between two reads coalesce into one flag; the running `resets` count in
+  `list_devices` is what separates one restart from three. Counts are compared
+  only within a single agent connection, since the agent keeps them in memory
+  and starts over when it restarts.
 - `write {session_id, data, encoding: utf8|base64}`: base64 for binary.
 - `set_params {session_id, baud?, dtr?, rts?}`: requires the device's
   control-line grant, including for a baud-only change.

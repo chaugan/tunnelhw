@@ -169,7 +169,8 @@ behaviour.
   agent then keeps the port for as long as monitoring is enabled.
 - **You can take a device back at any time.** **Release** in the web UI
   force-closes the session holding one device, leaving the tunnel and every
-  other device untouched. Hiding a device also ends its session. The **kill
+  other device untouched. A monitored device shows **Release port** instead,
+  which stops monitoring and hands the port back to the local machine. Hiding a device also ends its session. The **kill
   switch** stops everything and latches off until you press Reconnect.
 - **Reads never block indefinitely** and may return partial data.
 - **Sessions do not survive a reconnect.** Session IDs become invalid and
@@ -181,6 +182,20 @@ behaviour.
   re-enumerates after a firmware flash, the session closes and reads report
   `eof`. Without that, reads return nothing for ever, which is impossible to
   tell apart from a device that simply has nothing to say.
+- **A device that comes back says so.** When a device disappears and returns it
+  has re-enumerated, which for USB means it rebooted. The next `read` reports
+  `device_reset_detected: true`, once, so silence that follows can be read as a
+  restart rather than as a device with nothing to say.
+
+  `list_devices` carries the running count as `resets`, and that is the way to
+  check across sessions: a device that re-enumerates also ends its session, and
+  the first `eof` can arrive a few seconds before the device is back. Several
+  resets between two reads coalesce into one flag, so the count is also what
+  separates one restart from three.
+
+  Only USB re-enumeration is visible this way. A board that reboots without
+  dropping its USB connection, and any native COM port, cannot be told apart
+  from a quiet device by the host, and is not reported rather than guessed at.
 - **Monitoring keeps the port open and records output.** Enable **Monitor** for
   a device and the agent opens its port once and holds it, reading continuously
   into a 256 KB backlog. Sessions then attach to that stream rather than
@@ -189,6 +204,12 @@ behaviour.
   which matters most for devices that log at boot. And because the port is
   opened once rather than per session, hardware that does react to being opened
   reacts once, when monitoring starts.
+
+  The cost is that the port stays claimed. While Monitor is on, nothing else on
+  that machine, not your terminal, not the Arduino IDE, not a browser using
+  WebSerial, can open the device, and it will report the port as busy. The web
+  UI shows such a device as **monitoring** rather than **online** for exactly
+  this reason. Use **Release port** to hand it back.
 - **Opening a device does not touch its control lines.** DTR and RTS stay low,
   so simply reading from a board wired for auto-reset (every ESP32 and Arduino
   dev board) will not reboot it. Some USB-CDC firmware stays silent until the

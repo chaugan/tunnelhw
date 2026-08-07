@@ -40,6 +40,7 @@ type Session struct {
 	Owner    string    `json:"-"`
 
 	stream *relay.OpenedStream
+	resets resetSource
 
 	mu     sync.Mutex
 	cond   *sync.Cond
@@ -48,6 +49,25 @@ type Session struct {
 	rdErr  error
 
 	bytesIn, bytesOut uint64
+
+	// resetsSeen is the device's reset count as of the last read that reported
+	// one. Reads compare against the agent's current count so a restart is
+	// reported to the reader who was there for it, and not again afterwards.
+	// Several resets between two reads coalesce into one flag; the running
+	// count in list_devices is what distinguishes one restart from three.
+	resetsSeen int
+	// deviceUUID and agentEpoch identify what resetsSeen was counted against.
+	// The UUID survives a rename; the epoch guards against comparing a count
+	// from one agent process against the fresh count of its replacement.
+	deviceUUID string
+	agentEpoch uint64
+}
+
+// resetSource reports a device's re-enumeration count. The hub is the real
+// implementation; naming the dependency keeps the "report a reset once" rule
+// testable without standing up an agent connection.
+type resetSource interface {
+	ResetsFor(agentID, deviceUUID string) (int, uint64, bool)
 }
 
 // Broker owns live sessions.
@@ -89,6 +109,15 @@ func (b *Broker) Open(deviceID string, params proto.OpenParams, agentFilter []st
 		Opened:   time.Now(),
 		Owner:    owner,
 		stream:   st,
+		resets:   b.hub,
+
+		deviceUUID: st.DeviceUUID,
+		agentEpoch: st.AgentEpoch,
+	}
+	// Anything that happened before this session opened is not this session's
+	// news, so start from the device's current count rather than zero.
+	if n, epoch, ok := b.hub.ResetsFor(st.AgentID, st.DeviceUUID); ok && epoch == st.AgentEpoch {
+		s.resetsSeen = n
 	}
 	s.cond = sync.NewCond(&s.mu)
 	b.mu.Lock()
@@ -146,6 +175,14 @@ type ReadResult struct {
 	Data     []byte
 	TimedOut bool
 	EOF      bool
+	// DeviceReset reports that the device dropped off the bus and came back
+	// since the previous read. It answers the question a silent stream cannot:
+	// whether the firmware restarted or merely stopped talking.
+	//
+	// It detects re-enumeration, which for USB means a reset. A board that
+	// reboots without dropping its USB connection, or a native COM port, does
+	// not re-enumerate and so is not reported here.
+	DeviceReset bool
 }
 
 // ReadOptions selects how a read decides it has enough.
@@ -168,6 +205,41 @@ func (s *Session) Read(timeout time.Duration, maxBytes int, delimiter []byte) Re
 
 // ReadWith is Read with the full option set.
 func (s *Session) ReadWith(o ReadOptions) ReadResult {
+	res := s.readWith(o)
+	// Ask after the read rather than before, so a reset that happens while the
+	// read is blocked is reported by that same read instead of the next one.
+	res.DeviceReset = s.takeResetNews()
+	return res
+}
+
+// takeResetNews reports whether the device has re-enumerated since the last
+// time this session asked, and consumes the news so it is reported once.
+func (s *Session) takeResetNews() bool {
+	if s.resets == nil {
+		return false
+	}
+	n, epoch, ok := s.resets.ResetsFor(s.AgentID, s.deviceUUID)
+	if !ok {
+		// The agent or device is gone. That is its own signal, carried by EOF,
+		// and guessing a reset here would be inventing one.
+		return false
+	}
+	if epoch != s.agentEpoch {
+		// The agent reconnected, so its counter started over. This session
+		// belongs to the previous connection and cannot be compared against
+		// the new one in either direction.
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n <= s.resetsSeen {
+		return false
+	}
+	s.resetsSeen = n
+	return true
+}
+
+func (s *Session) readWith(o ReadOptions) ReadResult {
 	timeout, maxBytes, delimiter := o.Timeout, o.MaxBytes, o.Delimiter
 	if o.Lines {
 		// Whole lines are just a delimiter read that keeps consuming while

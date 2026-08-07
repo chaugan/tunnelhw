@@ -25,6 +25,11 @@ type deviceState struct {
 	Info   serialdev.PortInfo
 	Rec    config.DeviceRecord
 	Online bool
+	// Resets counts the times this device has vanished and come back. A USB
+	// device that re-enumerates has almost always rebooted, so this lets a
+	// consumer tell "the firmware restarted" from "the firmware went quiet",
+	// which are very different faults.
+	Resets int
 }
 
 // Core is the agent's brain. All methods are safe for concurrent use.
@@ -148,7 +153,21 @@ func (c *Core) Rescan() error {
 			dirty = true
 			c.activity.Add("info", fmt.Sprintf("new device %s (%s, %s confidence) named %s", p.Path, fp.Transport, fp.Confidence, wordID))
 		}
-		c.devices[fp.Key] = &deviceState{FP: fp, Info: p, Rec: rec, Online: true}
+		next := &deviceState{FP: fp, Info: p, Rec: rec, Online: true}
+		if prev, seen := c.devices[fp.Key]; seen {
+			next.Resets = prev.Resets
+			if !prev.Online && p.IsUSB {
+				// It was gone and is back. On USB that is a re-enumeration,
+				// which means the device restarted. Only USB is counted: a
+				// native port that drops out of enumeration says something
+				// about the driver or the adapter, not about the firmware on
+				// the other end, and reporting it as a reset would be a
+				// diagnosis the agent cannot actually make.
+				next.Resets++
+				c.activity.Add("info", fmt.Sprintf("%s came back after disappearing; treating it as a device reset", rec.WordID))
+			}
+		}
+		c.devices[fp.Key] = next
 	}
 	// A device that has gone takes its session with it. Leaving the session
 	// open strands the consumer on a dead handle: reads return nothing for
@@ -418,6 +437,8 @@ func (c *Core) ExposedDevices() []proto.Device {
 				ControlLinesAllowed:   ds.Rec.AllowControlLines,
 				AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
 				Monitored:             ds.Rec.Monitored,
+				PortHeld:              c.monitors[ds.Rec.UUID] != nil,
+				Resets:                ds.Resets,
 			},
 		})
 	}
@@ -456,6 +477,8 @@ func (c *Core) UIDevices() []UIDevice {
 					ControlLinesAllowed:   ds.Rec.AllowControlLines,
 					AssertLinesOnOpen:     ds.Rec.AssertLinesOnOpen,
 					Monitored:             ds.Rec.Monitored,
+					PortHeld:              c.monitors[ds.Rec.UUID] != nil,
+					Resets:                ds.Resets,
 				},
 			},
 			Exposed: ds.Rec.Exposed,

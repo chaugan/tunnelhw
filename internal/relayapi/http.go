@@ -165,10 +165,11 @@ func (a *API) read(w http.ResponseWriter, r *http.Request, tok *auth.APIToken) {
 		Lines:     req.Lines,
 	})
 	out := map[string]any{
-		"data_b64":  base64.StdEncoding.EncodeToString(res.Data),
-		"timed_out": res.TimedOut,
-		"eof":       res.EOF,
-		"n":         len(res.Data),
+		"data_b64":              base64.StdEncoding.EncodeToString(res.Data),
+		"timed_out":             res.TimedOut,
+		"eof":                   res.EOF,
+		"n":                     len(res.Data),
+		"device_reset_detected": res.DeviceReset,
 	}
 	if utf8.Valid(res.Data) {
 		out["text"] = string(res.Data)

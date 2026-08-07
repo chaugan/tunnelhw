@@ -100,3 +100,74 @@ func TestHideDuringOpenIsNotResurrected(t *testing.T) {
 		t.Fatal("a stale claim was left behind")
 	}
 }
+
+// A device that vanishes and returns has re-enumerated, which for USB means it
+// rebooted. Counting that is what lets a consumer tell a firmware restart from
+// a device that has merely gone quiet, so the count must survive the rescan
+// that rebuilds device state and must not fire on first discovery.
+func TestResetCountTracksReappearance(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	present := true
+	info := serialdev.PortInfo{Path: "/dev/ttyBLINK", IsUSB: true, VID: "303a", PID: "1001", SerialNumber: "BLINK1"}
+	core := New(dir, cfg,
+		func() ([]serialdev.PortInfo, error) {
+			if !present {
+				return nil, nil
+			}
+			return []serialdev.PortInfo{info}, nil
+		},
+		func(string, proto.OpenParams) (serialdev.Port, error) { return &slowPort{}, nil })
+
+	resets := func() int {
+		t.Helper()
+		devs := core.UIDevices()
+		if len(devs) != 1 {
+			t.Fatalf("want 1 device, got %d", len(devs))
+		}
+		return devs[0].Meta.Resets
+	}
+
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resets(); got != 0 {
+		t.Fatalf("first discovery is not a reset, got %d", got)
+	}
+
+	// A rescan that still sees the device must not invent one either.
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resets(); got != 0 {
+		t.Fatalf("steady state is not a reset, got %d", got)
+	}
+
+	present = false
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resets(); got != 0 {
+		t.Fatalf("a device that is merely gone has not reset yet, got %d", got)
+	}
+
+	present = true
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resets(); got != 1 {
+		t.Fatalf("want 1 reset after it came back, got %d", got)
+	}
+
+	// The count is cumulative across the agent's lifetime, and a plain rescan
+	// must not disturb it.
+	if err := core.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resets(); got != 1 {
+		t.Fatalf("want the count to hold at 1, got %d", got)
+	}
+}

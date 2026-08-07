@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chaugan/tunnelhw/internal/auth"
@@ -59,7 +60,12 @@ func (p *pendingMap) drop(corr string) {
 }
 
 type agentConn struct {
-	id      string
+	id string
+	// epoch distinguishes one connection of an agent from the next. Counters
+	// the agent keeps in memory, such as the per-device reset count, restart
+	// when the agent process does, so a consumer holding a number from an
+	// earlier connection must not compare it against a fresh one.
+	epoch   uint64
 	name    string
 	ctrl    *proto.Conn
 	sess    *yamux.Session
@@ -68,6 +74,9 @@ type agentConn struct {
 	mu      sync.Mutex
 	devices map[string]proto.Device // word-id -> device
 }
+
+// nextAgentEpoch hands out a fresh epoch per accepted agent connection.
+var nextAgentEpoch atomic.Uint64
 
 // DeviceView is a device qualified by its owning agent.
 type DeviceView struct {
@@ -147,7 +156,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		name = rec.Name
 	}
 	ac := &agentConn{
-		id: hello.AgentID, name: name, ctrl: ctrl, sess: sess,
+		id: hello.AgentID, epoch: nextAgentEpoch.Add(1), name: name, ctrl: ctrl, sess: sess,
 		pending: pendingMap{m: map[string]chan proto.Result{}},
 		devices: map[string]proto.Device{},
 	}
@@ -231,6 +240,32 @@ func (h *Hub) Devices(agentFilter []string) []DeviceView {
 	return out
 }
 
+// ResetsFor reports how many times the device with the given UUID has vanished
+// and returned, as last announced by its agent, along with the epoch of the
+// connection that reported it. The last result is false when the agent or the
+// device is no longer connected, which callers treat as "no news" rather than
+// as a reset.
+//
+// Devices are matched by UUID rather than by word-ID because a word-ID can be
+// regenerated while a session is open, and a caller holding the old name would
+// otherwise silently stop hearing about that device.
+func (h *Hub) ResetsFor(agentID, deviceUUID string) (int, uint64, bool) {
+	h.mu.Lock()
+	ac := h.agents[agentID]
+	h.mu.Unlock()
+	if ac == nil {
+		return 0, 0, false
+	}
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	for _, d := range ac.devices {
+		if d.UUID == deviceUUID {
+			return d.Meta.Resets, ac.epoch, true
+		}
+	}
+	return 0, 0, false
+}
+
 func containsStr(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -280,11 +315,15 @@ func (h *Hub) resolve(deviceID string, agentFilter []string) (*agentConn, string
 
 // OpenedStream is a live device stream plus its identifiers.
 type OpenedStream struct {
-	AgentID   string
-	DeviceID  string
-	SessionID string
-	Conn      *proto.Conn // read side (serves buffered bytes); use Write on Raw for writes
-	Raw       *yamux.Stream
+	AgentID string
+	// DeviceID is the word-ID the session was opened with, for display.
+	DeviceID string
+	// DeviceUUID identifies the device even if its word-ID is regenerated.
+	DeviceUUID string
+	AgentEpoch uint64
+	SessionID  string
+	Conn       *proto.Conn // read side (serves buffered bytes); use Write on Raw for writes
+	Raw        *yamux.Stream
 }
 
 // Open opens a device session on the owning agent and returns the live
@@ -294,6 +333,9 @@ func (h *Hub) Open(deviceID string, params proto.OpenParams, agentFilter []strin
 	if err != nil {
 		return nil, err
 	}
+	ac.mu.Lock()
+	deviceUUID := ac.devices[wordID].UUID
+	ac.mu.Unlock()
 	stream, err := ac.sess.OpenStream()
 	if err != nil {
 		return nil, fmt.Errorf("agent stream: %w", err)
@@ -318,7 +360,10 @@ func (h *Hub) Open(deviceID string, params proto.OpenParams, agentFilter []strin
 		return nil, errors.New(resp.Reason)
 	}
 	stream.SetDeadline(time.Time{})
-	return &OpenedStream{AgentID: ac.id, DeviceID: wordID, SessionID: resp.SessionID, Conn: pc, Raw: stream}, nil
+	return &OpenedStream{
+		AgentID: ac.id, DeviceID: wordID, DeviceUUID: deviceUUID,
+		AgentEpoch: ac.epoch, SessionID: resp.SessionID, Conn: pc, Raw: stream,
+	}, nil
 }
 
 // rpc sends a correlated control request to an agent and awaits the result.

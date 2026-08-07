@@ -136,6 +136,7 @@ td.path { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85r
 .state-online { color: var(--ok); }
 .state-offline { color: var(--dim); }
 .state-busy { color: var(--warn); font-weight: 700; }
+.state-monitoring { color: var(--accent); font-weight: 700; }
 
 .toggle { transform: scale(1.2); accent-color: var(--accent); cursor: pointer; }
 

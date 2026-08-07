@@ -99,6 +99,12 @@ type DeviceMeta struct {
 	ControlLinesAllowed   bool   `json:"control_lines_allowed"`
 	AssertLinesOnOpen     bool   `json:"assert_lines_on_open"`
 	Monitored             bool   `json:"monitored"`
+	// PortHeld reports that the agent currently holds the port open, so no
+	// other application on that machine can use it.
+	PortHeld bool `json:"port_held"`
+	// Resets counts how many times the device has vanished and returned. A
+	// consumer that sees this rise knows the device restarted.
+	Resets int `json:"resets"`
 }
 
 // Device is one exposed device as announced to the relay. ID is the

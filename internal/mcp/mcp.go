@@ -146,7 +146,12 @@ func newServer(b *relayapi.Broker, g grant) *sdk.Server {
 			"or whatever has arrived when the timeout fires; partial reads are normal, " +
 			"check 'timed_out' and call read again for more. 'text' is present only when " +
 			"the bytes are valid UTF-8; 'data_b64' always carries the exact bytes. " +
-			"'eof' true means the session is over." + sessionResetNote,
+			"'eof' true means the session is over. 'device_reset_detected' true means the " +
+			"device left the bus and came back since your last read, so silence that follows " +
+			"is a restart rather than a device with nothing to say. A device that re-enumerates " +
+			"ends its session, so the first 'eof' can arrive a few seconds before it is back: " +
+			"read again, or compare 'resets' in list_devices, before concluding it is gone." +
+			sessionResetNote,
 	}, readTool(b, g))
 
 	sdk.AddTool(s, &sdk.Tool{
@@ -218,6 +223,8 @@ type deviceInfo struct {
 	ControlLinesAllowed bool   `json:"control_lines_allowed" jsonschema:"whether set_params may toggle DTR/RTS on this device"`
 	Online              bool   `json:"online" jsonschema:"owning agent is currently connected"`
 	Busy                bool   `json:"busy" jsonschema:"another session holds the device right now"`
+	Monitored           bool   `json:"monitored" jsonschema:"the agent records this device continuously, so a new session starts with recent backlog instead of an empty stream"`
+	Resets              int    `json:"resets" jsonschema:"how many times this device has dropped off the bus and returned since the agent started; a rise means it restarted"`
 	ClaimedBy           string `json:"claimed_by,omitempty" jsonschema:"who holds the device, when busy"`
 }
 
@@ -241,6 +248,8 @@ func listDevices(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[emptyIn, listDe
 				ControlLinesAllowed: v.Device.Meta.ControlLinesAllowed,
 				Online:              v.Device.Online,
 				Busy:                v.Device.Busy,
+				Monitored:           v.Device.Meta.Monitored,
+				Resets:              v.Device.Meta.Resets,
 				ClaimedBy:           v.Device.ClaimedBy,
 			})
 		}
@@ -294,11 +303,12 @@ type readIn struct {
 }
 
 type readOut struct {
-	Text     string `json:"text,omitempty" jsonschema:"the bytes as a string; present only when valid UTF-8"`
-	DataB64  string `json:"data_b64" jsonschema:"the exact bytes, base64-encoded"`
-	N        int    `json:"n" jsonschema:"number of bytes returned"`
-	TimedOut bool   `json:"timed_out" jsonschema:"the timeout fired; data may be partial or empty"`
-	EOF      bool   `json:"eof" jsonschema:"the session is over and its buffer is empty"`
+	Text        string `json:"text,omitempty" jsonschema:"the bytes as a string; present only when valid UTF-8"`
+	DataB64     string `json:"data_b64" jsonschema:"the exact bytes, base64-encoded"`
+	N           int    `json:"n" jsonschema:"number of bytes returned"`
+	TimedOut    bool   `json:"timed_out" jsonschema:"the timeout fired; data may be partial or empty"`
+	EOF         bool   `json:"eof" jsonschema:"the session is over and its buffer is empty"`
+	DeviceReset bool   `json:"device_reset_detected" jsonschema:"the device dropped off the bus and came back since your last read: the firmware restarted. Distinguishes a restart from a device that has merely gone quiet. Only re-enumeration is detected, so a board that reboots without dropping its USB connection is not reported"`
 }
 
 func readTool(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[readIn, readOut] {
@@ -314,10 +324,11 @@ func readTool(b *relayapi.Broker, g grant) sdk.ToolHandlerFor[readIn, readOut] {
 			Lines:     in.Lines,
 		})
 		out := readOut{
-			DataB64:  base64.StdEncoding.EncodeToString(res.Data),
-			N:        len(res.Data),
-			TimedOut: res.TimedOut,
-			EOF:      res.EOF,
+			DataB64:     base64.StdEncoding.EncodeToString(res.Data),
+			N:           len(res.Data),
+			TimedOut:    res.TimedOut,
+			EOF:         res.EOF,
+			DeviceReset: res.DeviceReset,
 		}
 		if utf8.Valid(res.Data) {
 			out.Text = string(res.Data)

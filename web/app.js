@@ -199,9 +199,19 @@ function deviceRow(d) {
     (d.meta.transport ? " \u00b7 " + d.meta.transport : "")));
   tr.appendChild(el("td", "product", d.meta.product || "n/a"));
 
-  const state = !d.online ? ["offline", "state-offline"]
-    : d.busy ? ["busy", "state-busy"] : ["online", "state-online"];
-  tr.appendChild(el("td", state[1], state[0]));
+  // The state has to answer "can anything else on this machine use the port?".
+  // Monitoring holds the port open with no session attached, so a device that
+  // is merely "online" here would still refuse to open anywhere else.
+  const state = !d.online ? ["offline", "state-offline", "The agent cannot see this device."]
+    : d.busy ? ["busy", "state-busy", "A session holds this device."]
+    : d.meta.port_held ? ["monitoring", "state-monitoring",
+        "The agent holds this port open to record output, so no other program " +
+        "on this machine can open it. Release the port, or untick Monitor, to " +
+        "hand it back."]
+    : ["online", "state-online", "Free: nothing is holding the port."];
+  const tdState = el("td", state[1], state[0]);
+  tdState.title = state[2];
+  tr.appendChild(tdState);
 
   const mkToggle = (checked, field, title) => {
     const td = el("td", "c");
@@ -225,10 +235,25 @@ function deviceRow(d) {
     "boards wired for auto-reset."));
 
   const tdBtn = el("td", "actions");
+  if (d.meta.port_held) {
+    // Without this the port is held with no visible way to free it: Release
+    // only ever applied to sessions, so a monitored device looked idle while
+    // quietly locking out every other program on the machine. It is offered
+    // even when a session is attached, because there Release alone hands the
+    // port to the monitor rather than back to this machine.
+    const rel = el("button", "danger", "Release port");
+    rel.title = "Stop monitoring and hand the port back to this machine. " +
+      "Recorded backlog is discarded.";
+    rel.addEventListener("click", () => toggleDevice(d.uuid, "monitored", false));
+    tdBtn.appendChild(rel);
+  }
   if (d.busy) {
     const rel = el("button", "danger", "Release");
-    rel.title = "Force-close the session holding this device and hand the port " +
-      "back for local use. The device stays exposed.";
+    rel.title = d.meta.port_held
+      ? "Force-close the session holding this device. The port stays open for " +
+        "monitoring; use Release port to hand it back to this machine."
+      : "Force-close the session holding this device and hand the port " +
+        "back for local use. The device stays exposed.";
     rel.addEventListener("click", () => release(d.uuid));
     tdBtn.appendChild(rel);
   }
