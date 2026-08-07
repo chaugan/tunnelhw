@@ -113,9 +113,12 @@ td.product {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 22ch;
+  max-width: 18ch;
 }
-td.actions { width: 1%; }
+/* Deliberately no width:1% here. That pins a column to its minimum width,
+   which once the buttons are allowed to wrap means the narrowest one, so every
+   row would stack its buttons vertically even with room to spare. Left to auto
+   layout the column takes one line when it fits and wraps when it does not. */
 th { color: var(--dim); font-weight: 600; font-size: .8rem; text-transform: uppercase; }
 td.wordid { font-weight: 700; color: var(--accent); }
 td.wordid .badge { margin-left: .4rem; font-weight: 600; }
@@ -168,8 +171,19 @@ ul.plain li:last-child { border-bottom: 0; }
 .hostkey p { margin: 0 0 .5rem; }
 .hostkey button { width: auto; margin-right: .5rem; }
 
-td.actions { white-space: nowrap; }
-td.actions button + button { margin-left: .4rem; }
+/* Buttons wrap onto a second line rather than widening the table. A monitored
+   device that is also busy carries three of them, which is more than fits on
+   one line at this container width, and a horizontal scrollbar on the whole
+   table is a worse answer than a two-line cell. */
+td.actions { white-space: normal; text-align: right; }
+td.actions button {
+  white-space: nowrap;
+  margin: .15rem 0 .15rem .4rem;
+  /* Compact enough that a monitored, busy device fits its three buttons on one
+     line at the container width, rather than scrolling the whole table. */
+  font-size: .8rem;
+  padding: .3rem .6rem;
+}
 
 button.primary { background: var(--ok, #2ea043); color: #fff; }
 

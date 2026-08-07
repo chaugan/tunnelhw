@@ -248,10 +248,10 @@ function deviceRow(d) {
     tdBtn.appendChild(rel);
   }
   if (d.busy) {
-    const rel = el("button", "danger", "Release");
+    const rel = el("button", "danger", "End session");
     rel.title = d.meta.port_held
-      ? "Force-close the session holding this device. The port stays open for " +
-        "monitoring; use Release port to hand it back to this machine."
+      ? "Force-close the session holding this device. Monitoring continues, so " +
+        "the port stays open; use Release port to hand it back to this machine."
       : "Force-close the session holding this device and hand the port " +
         "back for local use. The device stays exposed.";
     rel.addEventListener("click", () => release(d.uuid));

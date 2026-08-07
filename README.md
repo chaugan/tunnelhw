@@ -167,10 +167,11 @@ behaviour.
   session is open the agent holds nothing, so your own terminal or IDE can use
   the device normally. Turning **Monitor** on reverses that deliberately: the
   agent then keeps the port for as long as monitoring is enabled.
-- **You can take a device back at any time.** **Release** in the web UI
+- **You can take a device back at any time.** **End session** in the web UI
   force-closes the session holding one device, leaving the tunnel and every
-  other device untouched. A monitored device shows **Release port** instead,
-  which stops monitoring and hands the port back to the local machine. Hiding a device also ends its session. The **kill
+  other device untouched. **Release port** appears on a monitored device and
+  stops monitoring, which is what actually hands the port back to the local
+  machine: ending the session alone passes it to the monitor, not to you. Hiding a device also ends its session. The **kill
   switch** stops everything and latches off until you press Reconnect.
 - **Reads never block indefinitely** and may return partial data.
 - **Sessions do not survive a reconnect.** Session IDs become invalid and
