@@ -12,8 +12,9 @@ deliberately rejected.
 
 ## Build and test
 
-Go ≥ 1.26.5 (see `go.mod`). No Node toolchain, no code generation, no `make`:
-the web UI is vanilla JS embedded with `go:embed`. If Go is not on your `PATH`
+Go ≥ 1.26.5 (see `go.mod`). No code generation, no `make`: the web UI is
+vanilla JS embedded with `go:embed`. Node is needed only for the optional
+layout check below, never to build. If Go is not on your `PATH`
 (on the primary dev machine it lives in `your Go installation`), export it
 first:
 
@@ -24,6 +25,23 @@ go test -race ./...        # full suite, no hardware needed
 go vet ./...
 scripts/build.sh <version> # cross-compiles every target into dist/
 ```
+
+### Checking the web UI layout
+
+The device table has grown a horizontal scrollbar twice, both times because a
+change added width to a row and nobody measured the result. `scripts/ui-layout-test.js`
+renders the real UI against a stub API and asserts the geometry, so it is worth
+running after any change to `web/`:
+
+```bash
+npm install playwright && npx playwright install chromium
+node scripts/ui-layout-test.js [screenshot.png]
+```
+
+It fails if the page ever scrolls sideways, if the table scrolls at a desktop
+width, or if a row's action buttons wrap when they should fit on one line. Pass
+`PLAYWRIGHT_MODULE` to reuse an existing Playwright install rather than adding
+one to this repo. It is not part of CI, which has no browser.
 
 `scripts/build.sh` builds agent and relay for windows/linux/darwin on amd64 and
 arm64 with `CGO_ENABLED=0`. It embeds Windows version resources if `go-winres`

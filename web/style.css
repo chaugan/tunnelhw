@@ -15,7 +15,10 @@
 body {
   margin: 0 auto;
   padding: 1.5rem;
-  max-width: 68rem;
+  /* Wide enough that the nine-column device table fits its widest row on one
+     line. It measured 1152px with three action buttons showing, and anything
+     narrower squeezes the only flexible column until the buttons stack. */
+  max-width: 78rem;
   background: var(--bg);
   color: var(--fg);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
