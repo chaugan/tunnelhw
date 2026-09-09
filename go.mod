@@ -10,8 +10,8 @@ require (
 	github.com/kardianos/service v1.3.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	go.bug.st/serial v1.8.0
-	golang.org/x/crypto v0.54.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/crypto v0.56.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
